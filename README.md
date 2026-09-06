@@ -6,8 +6,10 @@ map while a horde chases you down. Your gun fires by itself at anything inside
 your firing circle. Survive the clock, then kill what arrives at the end of it.
 
 Built as a web game in TypeScript + Canvas 2D, wrapped for both stores with
-Capacitor. The whole thing is ~50 KB of JavaScript (18 KB gzipped) with no art or
-audio assets: sounds are synthesised at runtime and icons are generated from code.
+Capacitor. The whole thing is ~63 KB of JavaScript (22 KB gzipped) with no art or
+audio assets: every sound, including the background score, is synthesised at
+runtime (see docs/AUDIO.md for why, and what it would take to swap in real
+recordings), and icons are generated from code.
 
 ---
 

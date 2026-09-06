@@ -4,6 +4,7 @@ import { StatusBar, Style } from '@capacitor/status-bar';
 
 import { preloadAds } from './core/ads';
 import { setAudioEnabled, sfx, unlockAudio } from './core/audio';
+import { music } from './core/music';
 import * as haptics from './core/haptics';
 import { isNative } from './core/platform';
 import { flushProfile, getProfile, initProfile, onProfileChange, setSetting } from './meta/profile';
@@ -84,6 +85,11 @@ async function boot(): Promise<void> {
     pager.setLocked(true);
     battle.start();
   }
+
+  // The score starts on first interaction (autoplay policy) and stays in the
+  // menu phase until a run begins; battle.ts switches it to battle/boss and
+  // back to menu when the run ends.
+  music.enterMenu();
 
   function refreshAll(): void {
     wallet.textContent = formatGold(getProfile().gold);

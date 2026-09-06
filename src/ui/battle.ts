@@ -1,4 +1,5 @@
 import { sfx, unlockAudio } from '../core/audio';
+import { music } from '../core/music';
 import * as haptics from '../core/haptics';
 import { JOYSTICK, MAX_LEVEL, RUN_DURATION, WAVES, WAVE_SECONDS } from '../game/config';
 import { Game } from '../game/engine';
@@ -140,6 +141,7 @@ export class Battle {
 
   start(): void {
     unlockAudio();
+    music.enterBattle();
     this.active = true;
     this.root.hidden = false;
     this.resultModal.hidden = true;
@@ -330,6 +332,7 @@ export class Battle {
 
   private onBossSpawn(): void {
     sfx.boss();
+    music.enterBoss();
     haptics.death();
     this.showBanner('BOSS INCOMING', 'banner--boss');
   }
@@ -408,6 +411,7 @@ export class Battle {
 
   private finish(result: RunResult): void {
     this.levelModal.hidden = true;
+    music.enterMenu();
     addGold(result.gold);
     recordRun({
       kills: result.kills,

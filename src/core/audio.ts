@@ -1,118 +1,110 @@
 /**
- * Procedural sound effects.
+ * One-shot sound effects, built on the shared engine in audioEngine.ts.
  *
- * No audio files ship with the game: every sound is synthesised with WebAudio,
- * which keeps the bundle tiny and avoids per-store asset licensing questions.
- * iOS/Android WebViews start the AudioContext suspended, so it is resumed on the
- * first user gesture.
+ * Every effect layers 2-4 primitive voices — a transient click, a tonal body, a
+ * low-end thump, an optional reverb tail — the same way a sound designer stacks
+ * layers under a single recorded sample. A single sine blip reads as a UI beep;
+ * three layers with slightly different timing reads as an impact.
  */
 
-let ctx: AudioContext | null = null;
-let master: GainNode | null = null;
-let enabled = true;
-/** Shots are throttled so a maxed fire rate does not turn into a buzzsaw. */
-let lastShot = 0;
+import { ensureEngine, playNoise, playTone, setEngineEnabled } from './audioEngine';
 
-function ensure(): AudioContext | null {
-  if (!enabled) return null;
-  if (!ctx) {
-    const Ctor = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-    if (!Ctor) return null;
-    ctx = new Ctor();
-    master = ctx.createGain();
-    master.gain.value = 0.28;
-    master.connect(ctx.destination);
-  }
-  if (ctx.state === 'suspended') void ctx.resume().catch(() => {});
-  return ctx;
-}
+let lastShot = 0;
+let uiVariance = 0;
 
 export function unlockAudio(): void {
-  ensure();
+  ensureEngine();
 }
 
 export function setAudioEnabled(value: boolean): void {
-  enabled = value;
-  if (master) master.gain.value = value ? 0.28 : 0;
-}
-
-function blip(
-  freq: number,
-  duration: number,
-  type: OscillatorType,
-  gain: number,
-  sweepTo?: number,
-): void {
-  const ac = ensure();
-  if (!ac || !master) return;
-  const osc = ac.createOscillator();
-  const env = ac.createGain();
-  const t = ac.currentTime;
-  osc.type = type;
-  osc.frequency.setValueAtTime(freq, t);
-  if (sweepTo !== undefined) osc.frequency.exponentialRampToValueAtTime(Math.max(20, sweepTo), t + duration);
-  env.gain.setValueAtTime(0.0001, t);
-  env.gain.exponentialRampToValueAtTime(gain, t + 0.008);
-  env.gain.exponentialRampToValueAtTime(0.0001, t + duration);
-  osc.connect(env);
-  env.connect(master);
-  osc.start(t);
-  osc.stop(t + duration + 0.02);
-}
-
-function noise(duration: number, gain: number, freq: number): void {
-  const ac = ensure();
-  if (!ac || !master) return;
-  const frames = Math.floor(ac.sampleRate * duration);
-  const buffer = ac.createBuffer(1, frames, ac.sampleRate);
-  const data = buffer.getChannelData(0);
-  for (let i = 0; i < frames; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / frames);
-  const src = ac.createBufferSource();
-  src.buffer = buffer;
-  const filter = ac.createBiquadFilter();
-  filter.type = 'lowpass';
-  filter.frequency.value = freq;
-  const env = ac.createGain();
-  env.gain.value = gain;
-  src.connect(filter);
-  filter.connect(env);
-  env.connect(master);
-  src.start();
+  setEngineEnabled(value);
 }
 
 export const sfx = {
   shoot(): void {
+    // Throttled: a maxed fire rate would otherwise retrigger faster than the
+    // ear can separate the layers, which reads as distortion, not rate of fire.
     const now = performance.now();
-    if (now - lastShot < 55) return;
+    if (now - lastShot < 50) return;
     lastShot = now;
-    blip(680, 0.06, 'square', 0.06, 320);
+    // Transient click + a short downward-pitched body + a sub thump underneath.
+    playNoise({ duration: 0.02, gain: 0.1, filterType: 'highpass', filterFreq: 4000 });
+    playTone({ freq: 720, sweepTo: 260, duration: 0.055, type: 'square', gain: 0.075 });
+    playTone({ freq: 160, sweepTo: 70, duration: 0.05, type: 'sine', gain: 0.05 });
   },
+
   kill(): void {
-    noise(0.12, 0.16, 1600);
+    // Bright metallic ping (two close, slightly detuned tones beating against
+    // each other) over a short noise crack, with a touch of reverb so the kill
+    // feels like it happened in the space rather than in your ear.
+    playNoise({ duration: 0.09, gain: 0.14, filterType: 'bandpass', filterFreq: 2600, q: 1.2, reverb: 0.12 });
+    playTone({ freq: 980, duration: 0.11, type: 'triangle', gain: 0.09, reverb: 0.15 });
+    playTone({ freq: 980, duration: 0.11, type: 'triangle', gain: 0.07, detune: 14, delay: 0.006 });
   },
+
   hurt(): void {
-    blip(180, 0.18, 'sawtooth', 0.16, 70);
+    // A falling sawtooth body plus a sub-bass dip underneath for weight — the
+    // low end is what makes an impact felt rather than just heard.
+    playTone({ freq: 210, sweepTo: 60, duration: 0.19, type: 'sawtooth', gain: 0.13 });
+    playTone({ freq: 90, sweepTo: 35, duration: 0.16, type: 'sine', gain: 0.11 });
+    playNoise({ duration: 0.07, gain: 0.06, filterType: 'lowpass', filterFreq: 1200, filterFreqEnd: 300 });
   },
+
   levelUp(): void {
-    blip(520, 0.1, 'triangle', 0.14);
-    window.setTimeout(() => blip(780, 0.14, 'triangle', 0.14), 90);
-    window.setTimeout(() => blip(1040, 0.2, 'triangle', 0.12), 190);
+    // A three-note arpeggio, each note itself two detuned oscillators for a
+    // chorused, "produced" shimmer, plus a bright top partial on the last note.
+    const notes = [523.25, 659.25, 783.99]; // C5, E5, G5
+    notes.forEach((freq, i) => {
+      const delay = i * 0.09;
+      playTone({ freq, duration: 0.22, type: 'triangle', gain: 0.1, delay, pan: -0.15 + i * 0.15, reverb: 0.18 });
+      playTone({ freq, duration: 0.22, type: 'triangle', gain: 0.07, detune: 10, delay: delay + 0.01, pan: -0.15 + i * 0.15 });
+    });
+    playTone({ freq: 1567.98, duration: 0.3, type: 'sine', gain: 0.05, delay: 0.24, reverb: 0.25 });
   },
+
   boss(): void {
-    blip(90, 0.9, 'sawtooth', 0.2, 45);
-    noise(0.7, 0.12, 400);
+    // Sub rumble, a distorted mid growl (through the shared saturation stage via
+    // a hot gain into the normal chain), and a big reverberant impact hit.
+    playTone({ freq: 55, sweepTo: 38, duration: 1.1, type: 'sine', gain: 0.22 });
+    playTone({ freq: 130, sweepTo: 85, duration: 0.9, type: 'sawtooth', gain: 0.16, detune: -8 });
+    playTone({ freq: 130, sweepTo: 85, duration: 0.9, type: 'sawtooth', gain: 0.16, detune: 9 });
+    playNoise({ duration: 0.8, gain: 0.16, filterType: 'lowpass', filterFreq: 900, filterFreqEnd: 200, reverb: 0.4 });
   },
+
   win(): void {
-    [440, 660, 880, 1320].forEach((f, i) => window.setTimeout(() => blip(f, 0.24, 'triangle', 0.13), i * 110));
+    // Ascending major triad plus octave, each note double-tracked, generous
+    // reverb tail — the closest this engine gets to a brass fanfare.
+    const notes = [440, 554.37, 659.25, 880]; // A4, C#5, E5, A5
+    notes.forEach((freq, i) => {
+      const delay = i * 0.1;
+      playTone({ freq, duration: 0.3, type: 'sawtooth', gain: 0.08, delay, reverb: 0.3 });
+      playTone({ freq, duration: 0.3, type: 'square', gain: 0.05, delay: delay + 0.015, detune: -6 });
+    });
   },
+
   lose(): void {
-    [330, 260, 200, 140].forEach((f, i) => window.setTimeout(() => blip(f, 0.3, 'sawtooth', 0.13), i * 130));
+    // Descending minor line with a lowpass sweep closing over it, like a light
+    // going out.
+    const notes = [392, 349.23, 293.66, 220]; // G4, F4, D4, A3
+    notes.forEach((freq, i) => {
+      playTone({ freq, sweepTo: freq * 0.75, duration: 0.32, type: 'sawtooth', gain: 0.1, delay: i * 0.13, reverb: 0.2 });
+    });
+    playNoise({ duration: 0.6, gain: 0.05, filterType: 'lowpass', filterFreq: 800, filterFreqEnd: 150, delay: 0.1 });
   },
+
   ui(): void {
-    blip(880, 0.05, 'sine', 0.09);
+    // Tiny pitch jitter so a burst of taps doesn't sound like a machine-gun of
+    // identical samples.
+    uiVariance = (uiVariance + 1) % 5;
+    const wobble = 1 + (uiVariance - 2) * 0.015;
+    playTone({ freq: 1046.5 * wobble, duration: 0.045, type: 'sine', gain: 0.075 });
+    playTone({ freq: 1568 * wobble, duration: 0.035, type: 'sine', gain: 0.03, delay: 0.008 });
   },
+
   purchase(): void {
-    blip(660, 0.08, 'sine', 0.11);
-    window.setTimeout(() => blip(990, 0.14, 'sine', 0.1), 70);
+    // A coin: two quick ascending tones plus a high sparkle.
+    playTone({ freq: 784, duration: 0.09, type: 'square', gain: 0.09 });
+    playTone({ freq: 1174.66, duration: 0.14, type: 'square', gain: 0.09, delay: 0.07 });
+    playTone({ freq: 2349.32, duration: 0.18, type: 'sine', gain: 0.04, delay: 0.09, reverb: 0.2 });
   },
 };
