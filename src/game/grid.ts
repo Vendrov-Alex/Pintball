@@ -1,0 +1,55 @@
+import type { Enemy } from './types';
+
+/**
+ * Uniform spatial hash, rebuilt once per frame.
+ *
+ * Bullet hit tests and bot-to-bot separation are both "what is near this point"
+ * queries. Brute force is O(n^2) and at 250+ bots that is ~60k distance checks a
+ * frame; the grid keeps it near-linear.
+ */
+export class SpatialGrid {
+  private readonly cells = new Map<number, Enemy[]>();
+  private readonly cellSize: number;
+
+  constructor(cellSize: number) {
+    this.cellSize = cellSize;
+  }
+
+  private key(cx: number, cy: number): number {
+    // Cantor-style pairing on shifted coordinates; bots never leave +/-4096 vu.
+    return (cx + 4096) * 8192 + (cy + 4096);
+  }
+
+  rebuild(enemies: readonly Enemy[]): void {
+    for (const bucket of this.cells.values()) bucket.length = 0;
+    for (const e of enemies) {
+      if (!e.active) continue;
+      const k = this.key(Math.floor(e.x / this.cellSize), Math.floor(e.y / this.cellSize));
+      let bucket = this.cells.get(k);
+      if (!bucket) {
+        bucket = [];
+        this.cells.set(k, bucket);
+      }
+      bucket.push(e);
+    }
+  }
+
+  /** Calls `fn` for every bot in the cells overlapping the given circle. */
+  query(x: number, y: number, radius: number, fn: (e: Enemy) => void): void {
+    const minX = Math.floor((x - radius) / this.cellSize);
+    const maxX = Math.floor((x + radius) / this.cellSize);
+    const minY = Math.floor((y - radius) / this.cellSize);
+    const maxY = Math.floor((y + radius) / this.cellSize);
+    for (let cx = minX; cx <= maxX; cx++) {
+      for (let cy = minY; cy <= maxY; cy++) {
+        const bucket = this.cells.get(this.key(cx, cy));
+        if (!bucket) continue;
+        for (const e of bucket) if (e.active) fn(e);
+      }
+    }
+  }
+
+  clear(): void {
+    this.cells.clear();
+  }
+}

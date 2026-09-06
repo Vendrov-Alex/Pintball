@@ -1,0 +1,422 @@
+import { sfx, unlockAudio } from '../core/audio';
+import * as haptics from '../core/haptics';
+import { MAX_LEVEL, RUN_DURATION, WAVES, WAVE_SECONDS } from '../game/config';
+import { Game } from '../game/engine';
+import { Renderer } from '../game/renderer';
+import type { RunResult } from '../game/types';
+import type { UpgradeChoice } from '../game/upgrades';
+import { metaMultiplier } from '../meta/metaUpgrades';
+import { addGold, getProfile, recordRun } from '../meta/profile';
+import { formatGold, formatTime, onTap, qs } from './dom';
+
+const FIXED_DT = 1 / 60;
+/** Never simulate more than this many steps in one frame (tab-switch guard). */
+const MAX_STEPS = 5;
+
+export class Battle {
+  readonly root: HTMLElement;
+
+  private readonly canvas: HTMLCanvasElement;
+  private readonly renderer: Renderer;
+  private readonly game: Game;
+
+  private readonly hudTimer: HTMLElement;
+  private readonly hudWave: HTMLElement;
+  private readonly hudGold: HTMLElement;
+  private readonly hpFill: HTMLElement;
+  private readonly hpText: HTMLElement;
+  private readonly xpFill: HTMLElement;
+  private readonly levelBadge: HTMLElement;
+  private readonly bossBar: HTMLElement;
+  private readonly bossFill: HTMLElement;
+  private readonly banner: HTMLElement;
+  private readonly levelModal: HTMLElement;
+  private readonly choiceHost: HTMLElement;
+  private readonly resultModal: HTMLElement;
+
+  private raf = 0;
+  private lastFrame = 0;
+  private accumulator = 0;
+  private active = false;
+  private lastWave = -1;
+  private hudCache = { hp: -1, xp: -1, level: -1, gold: -1, time: -1, wave: -1 };
+
+  constructor(private readonly onExit: (result: RunResult | null) => void) {
+    this.root = document.createElement('div');
+    this.root.className = 'battle';
+    this.root.hidden = true;
+    this.root.innerHTML = `
+      <canvas class="battle__canvas"></canvas>
+
+      <div class="hud">
+        <div class="hud__top">
+          <button class="hud__quit" type="button" aria-label="Leave battle">✕</button>
+          <div class="hud__timer"><span class="hud__timer-value">3:00</span></div>
+          <div class="hud__chips">
+            <span class="chip chip--wave">Wave 1</span>
+            <span class="chip chip--gold"><span class="coin" aria-hidden="true"></span><span class="chip__value">0</span></span>
+          </div>
+        </div>
+
+        <div class="hud__bars">
+          <div class="bar bar--hp">
+            <div class="bar__fill"></div>
+            <span class="bar__label">120 / 120</span>
+          </div>
+          <div class="bar bar--xp">
+            <div class="bar__fill"></div>
+            <span class="bar__level">Lv 1</span>
+          </div>
+        </div>
+
+        <div class="hud__boss" hidden>
+          <span class="hud__boss-name">BOSS</span>
+          <div class="bar bar--boss"><div class="bar__fill"></div></div>
+        </div>
+
+        <div class="banner" aria-live="polite"></div>
+      </div>
+
+      <div class="modal modal--levelup" hidden>
+        <div class="modal__card">
+          <p class="modal__eyebrow">Level up</p>
+          <h2 class="modal__title">Choose one</h2>
+          <div class="choices"></div>
+        </div>
+      </div>
+
+      <div class="modal modal--result" hidden>
+        <div class="modal__card"></div>
+      </div>`;
+
+    this.canvas = qs(this.root, '.battle__canvas');
+    this.renderer = new Renderer(this.canvas);
+    this.game = new Game({
+      onLevelUp: (choices, level) => this.showLevelUp(choices, level),
+      onBossSpawn: () => this.onBossSpawn(),
+      onEnd: (result) => this.finish(result),
+      onKill: () => sfx.kill(),
+      onPlayerHit: () => {
+        sfx.hurt();
+        haptics.hit();
+      },
+      onShoot: () => sfx.shoot(),
+    });
+
+    this.hudTimer = qs(this.root, '.hud__timer-value');
+    this.hudWave = qs(this.root, '.chip--wave');
+    this.hudGold = qs(this.root, '.chip--gold .chip__value');
+    this.hpFill = qs(this.root, '.bar--hp .bar__fill');
+    this.hpText = qs(this.root, '.bar--hp .bar__label');
+    this.xpFill = qs(this.root, '.bar--xp .bar__fill');
+    this.levelBadge = qs(this.root, '.bar--xp .bar__level');
+    this.bossBar = qs(this.root, '.hud__boss');
+    this.bossFill = qs(this.root, '.bar--boss .bar__fill');
+    this.banner = qs(this.root, '.banner');
+    this.levelModal = qs(this.root, '.modal--levelup');
+    this.choiceHost = qs(this.root, '.choices');
+    this.resultModal = qs(this.root, '.modal--result');
+
+    onTap(qs(this.root, '.hud__quit'), () => this.quit());
+
+    // Dev-only handle used by the balance harness in scripts/simulate.mjs.
+    // Vite strips this branch entirely from production builds.
+    if (import.meta.env.DEV) {
+      (window as unknown as Record<string, unknown>).__battle = this;
+      (window as unknown as Record<string, unknown>).__game = this.game;
+    }
+    this.bindAim();
+    window.addEventListener('resize', () => this.layout());
+    document.addEventListener('visibilitychange', () => {
+      // Backgrounding must not fast-forward the simulation when we come back.
+      if (document.hidden) this.accumulator = 0;
+      this.lastFrame = performance.now();
+    });
+  }
+
+  // ------------------------------------------------------------------- start
+
+  start(): void {
+    unlockAudio();
+    this.active = true;
+    this.root.hidden = false;
+    this.resultModal.hidden = true;
+    this.levelModal.hidden = true;
+    this.bossBar.hidden = true;
+    this.lastWave = -1;
+    this.hudCache = { hp: -1, xp: -1, level: -1, gold: -1, time: -1, wave: -1 };
+
+    this.layout();
+    this.game.start({
+      damage: metaMultiplier('damage'),
+      fireRate: metaMultiplier('fireRate'),
+      range: metaMultiplier('range'),
+    });
+
+    this.showBanner('Wave 1', 'banner--wave');
+    this.lastFrame = performance.now();
+    this.accumulator = 0;
+    cancelAnimationFrame(this.raf);
+    this.raf = requestAnimationFrame(this.frame);
+  }
+
+  private layout(): void {
+    if (!this.active) return;
+    const w = this.root.clientWidth || window.innerWidth;
+    const h = this.root.clientHeight || window.innerHeight;
+    this.renderer.resize(w, h);
+    this.game.resize(w, h);
+  }
+
+  // ------------------------------------------------------------------- input
+
+  private bindAim(): void {
+    const toWorld = (ev: PointerEvent): { x: number; y: number } => {
+      const rect = this.canvas.getBoundingClientRect();
+      const { scale } = this.game.view;
+      return {
+        x: (ev.clientX - rect.left - rect.width / 2) / scale,
+        y: (ev.clientY - rect.top - rect.height / 2) / scale,
+      };
+    };
+
+    this.canvas.addEventListener('pointerdown', (ev) => {
+      this.canvas.setPointerCapture(ev.pointerId);
+      const p = toWorld(ev);
+      this.game.setAim(p.x, p.y);
+    });
+    this.canvas.addEventListener('pointermove', (ev) => {
+      if (ev.buttons === 0 && ev.pointerType === 'mouse') return;
+      const p = toWorld(ev);
+      this.game.setAim(p.x, p.y);
+    });
+    const release = (): void => this.game.clearAim();
+    this.canvas.addEventListener('pointerup', release);
+    this.canvas.addEventListener('pointercancel', release);
+  }
+
+  // -------------------------------------------------------------------- loop
+
+  private readonly frame = (now: number): void => {
+    if (!this.active) return;
+    this.raf = requestAnimationFrame(this.frame);
+
+    const elapsed = Math.min((now - this.lastFrame) / 1000, 0.25);
+    this.lastFrame = now;
+    this.accumulator += elapsed;
+
+    let steps = 0;
+    while (this.accumulator >= FIXED_DT && steps < MAX_STEPS) {
+      this.game.update(FIXED_DT);
+      this.accumulator -= FIXED_DT;
+      steps += 1;
+    }
+    if (steps === MAX_STEPS) this.accumulator = 0;
+
+    this.renderer.render(this.game, now);
+    this.updateHud();
+  };
+
+  // --------------------------------------------------------------------- hud
+
+  private updateHud(): void {
+    const g = this.game;
+    const cache = this.hudCache;
+
+    const hpRatio = Math.max(0, g.hp / g.maxHp);
+    if (Math.abs(hpRatio - cache.hp) > 0.001) {
+      cache.hp = hpRatio;
+      this.hpFill.style.transform = `scaleX(${hpRatio})`;
+      this.hpText.textContent = `${Math.ceil(g.hp)} / ${Math.round(g.maxHp)}`;
+      this.hpFill.classList.toggle('is-critical', hpRatio < 0.34);
+    }
+
+    const xpRatio = g.xpProgress();
+    if (Math.abs(xpRatio - cache.xp) > 0.001) {
+      cache.xp = xpRatio;
+      this.xpFill.style.transform = `scaleX(${xpRatio})`;
+    }
+
+    if (g.level !== cache.level) {
+      cache.level = g.level;
+      this.levelBadge.textContent = g.level >= MAX_LEVEL ? 'MAX' : `Lv ${g.level}`;
+    }
+
+    const gold = Math.floor(g.gold);
+    if (gold !== cache.gold) {
+      cache.gold = gold;
+      this.hudGold.textContent = formatGold(gold);
+    }
+
+    const remaining = Math.max(0, RUN_DURATION - g.elapsed);
+    const shown = Math.ceil(remaining);
+    if (shown !== cache.time) {
+      cache.time = shown;
+      this.hudTimer.textContent = g.bossActive || g.bossKilled ? 'BOSS' : formatTime(remaining);
+      this.hudTimer.classList.toggle('is-urgent', !g.bossActive && remaining <= 10);
+    }
+
+    const wave = Math.min(WAVES.length, Math.floor(g.elapsed / WAVE_SECONDS) + 1);
+    if (wave !== cache.wave && !g.bossActive) {
+      cache.wave = wave;
+      this.hudWave.textContent = `Wave ${wave}`;
+      if (this.lastWave !== -1 && wave !== this.lastWave) this.showBanner(`Wave ${wave}`, 'banner--wave');
+      this.lastWave = wave;
+    }
+
+    const boss = g.boss;
+    if (boss) {
+      this.bossBar.hidden = false;
+      this.bossFill.style.transform = `scaleX(${Math.max(0, boss.hp / boss.maxHp)})`;
+    } else if (!this.bossBar.hidden) {
+      this.bossBar.hidden = true;
+    }
+  }
+
+  private showBanner(text: string, modifier: string): void {
+    this.banner.textContent = text;
+    this.banner.className = `banner ${modifier} is-visible`;
+    window.setTimeout(() => this.banner.classList.remove('is-visible'), 1400);
+  }
+
+  private onBossSpawn(): void {
+    sfx.boss();
+    haptics.death();
+    this.showBanner('BOSS INCOMING', 'banner--boss');
+  }
+
+  // ---------------------------------------------------------------- level up
+
+  private showLevelUp(choices: UpgradeChoice[], level: number): void {
+    sfx.levelUp();
+    haptics.levelUp();
+    qs(this.levelModal, '.modal__eyebrow').textContent = `Level ${level}`;
+
+    this.choiceHost.innerHTML = choices
+      .map((c) => {
+        const pips =
+          c.maxPicks === null
+            ? ''
+            : `<div class="choice__pips">${Array.from(
+                { length: c.maxPicks },
+                (_, i) => `<i class="${i < (c.picks ?? 0) ? 'on' : ''}"></i>`,
+              ).join('')}</div>`;
+        return `
+          <button class="choice" type="button" data-id="${c.id}" style="--accent:${c.accent}">
+            <span class="choice__icon" aria-hidden="true">${c.icon}</span>
+            <span class="choice__text">
+              <strong>${c.name}</strong>
+              <em>${c.detail}</em>
+            </span>
+            ${pips}
+          </button>`;
+      })
+      .join('');
+
+    this.choiceHost.querySelectorAll<HTMLButtonElement>('.choice').forEach((btn) => {
+      onTap(btn, () => {
+        sfx.ui();
+        haptics.tap();
+        this.levelModal.hidden = true;
+        this.game.applyChoice(btn.dataset.id as UpgradeChoice['id']);
+        // A card can be open for a while; do not let the pause become a time jump.
+        this.lastFrame = performance.now();
+        this.accumulator = 0;
+      });
+    });
+
+    this.levelModal.hidden = false;
+  }
+
+  // ------------------------------------------------------------------ ending
+
+  get isActive(): boolean {
+    return this.active;
+  }
+
+  /** Android hardware back button: leave the run, banking what was earned. */
+  requestQuit(): void {
+    if (!this.active) return;
+    if (this.game.phase === 'ended') {
+      this.stop();
+      this.onExit(null);
+      return;
+    }
+    this.quit();
+  }
+
+  private quit(): void {
+    if (this.game.phase === 'ended') return;
+    // Leaving early still banks the gold that was actually earned.
+    this.finish({
+      won: false,
+      bossKilled: false,
+      retreated: true,
+      kills: this.game.kills,
+      gold: Math.floor(this.game.gold),
+      level: this.game.level,
+      survivedSeconds: this.game.elapsed,
+    });
+    this.game.abandon();
+  }
+
+  private finish(result: RunResult): void {
+    this.levelModal.hidden = true;
+    addGold(result.gold);
+    recordRun({
+      kills: result.kills,
+      level: result.level,
+      survivedSeconds: result.survivedSeconds,
+      won: result.won,
+    });
+    if (result.won) {
+      sfx.win();
+      haptics.levelUp();
+    } else {
+      sfx.lose();
+      haptics.death();
+    }
+
+    const card = qs(this.resultModal, '.modal__card');
+    card.innerHTML = `
+      <p class="result__eyebrow ${result.won ? 'is-win' : 'is-loss'}">${
+        result.won ? 'Boss down' : result.retreated ? 'Gold secured' : 'You fell'
+      }</p>
+      <h2 class="result__title">${result.won ? 'Victory' : result.retreated ? 'Retreat' : 'Defeat'}</h2>
+      <div class="result__grid">
+        <div><span>Kills</span><strong>${result.kills}</strong></div>
+        <div><span>Level</span><strong>${result.level}</strong></div>
+        <div><span>Survived</span><strong>${formatTime(result.survivedSeconds)}</strong></div>
+      </div>
+      <div class="result__gold">
+        <span class="coin coin--lg" aria-hidden="true"></span>
+        <strong>+${formatGold(result.gold)}</strong>
+        <em>banked · total ${formatGold(getProfile().gold)}</em>
+      </div>
+      <div class="result__actions">
+        <button class="btn btn--ghost" type="button" data-action="home">Home</button>
+        <button class="btn btn--primary" type="button" data-action="retry">Again</button>
+      </div>`;
+
+    card.querySelectorAll<HTMLButtonElement>('[data-action]').forEach((btn) => {
+      onTap(btn, () => {
+        sfx.ui();
+        if (btn.dataset.action === 'retry') {
+          this.resultModal.hidden = true;
+          this.start();
+        } else {
+          this.stop();
+          this.onExit(result);
+        }
+      });
+    });
+
+    this.resultModal.hidden = false;
+  }
+
+  private stop(): void {
+    this.active = false;
+    cancelAnimationFrame(this.raf);
+    this.root.hidden = true;
+  }
+}

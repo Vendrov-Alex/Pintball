@@ -1,0 +1,21 @@
+node_modules/
+dist/
+.DS_Store
+*.log
+
+# Capacitor native projects are generated locally (npx cap add android|ios).
+# Commit them only if you customise native code — see docs/STORE_RELEASE.md.
+/android
+/ios
+
+# QA output
+/screenshots
+.interactive-tmp.mjs
+
+# Generated store assets
+/resources/generated
+.vite/
+*.local
+.env
+.env.*
+!.env.example
