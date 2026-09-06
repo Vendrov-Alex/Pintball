@@ -75,8 +75,12 @@ export interface FloatText {
   x: number;
   y: number;
   life: number;
+  /** `life` this float started at; alpha fades as life/maxLife. */
+  maxLife: number;
   text: string;
   color: string;
+  /** Font size in px (world units, so it scales with the camera like everything else). */
+  size: number;
 }
 
 export interface RunResult {

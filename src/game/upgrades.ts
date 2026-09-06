@@ -20,6 +20,7 @@ const META: Record<RunUpgradeId, { name: string; detail: (step: number) => strin
   magnet: { name: 'Magnet', detail: (s) => `+${s}% pickup radius`, icon: '⬤', accent: '#c07bff' },
   maxHp: { name: 'Reinforce', detail: (s) => `+${s}% max health, healed`, icon: '✚', accent: '#5ad1ff' },
   moveSpeed: { name: 'Sprint', detail: (s) => `+${s}% movement speed`, icon: '➤', accent: '#7affc4' },
+  hands: { name: 'More Hands', detail: () => '+1 firing direction', icon: '✋', accent: '#ff8f4d' },
 };
 
 export const RUN_UPGRADE_IDS = Object.keys(RUN_UPGRADE_LINES) as RunUpgradeId[];
@@ -42,7 +43,7 @@ export function isMaxed(id: RunUpgradeId, picks: number): boolean {
 /**
  * Three random cards from the lines that are not yet maxed.
  *
- * Six lines against fourteen level-ups means a run can never exhaust them: the
+ * Seven lines against fourteen level-ups means a run can never exhaust them: the
  * most a player can close off is two full lines plus change, so there is always
  * something left to offer and no filler card is needed.
  */

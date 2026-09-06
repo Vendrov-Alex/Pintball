@@ -32,6 +32,17 @@ export const PLAYER = {
   moveSpeed: 152,
   /** Radius inside which dropped orbs are pulled toward the square, in vu. */
   magnetRadius: 150,
+  /** Simultaneous firing directions before any upgrade — one target at a time. */
+  hands: 1,
+  /**
+   * Every hand beyond the first fires at this share of normal damage. A second
+   * full-damage gun would double single-pick value against anything but a lone
+   * bot — measured at 100%, "third" meta tier went from a 17% to a 100% win
+   * rate off a single pick. At this share extra hands are still clearly worth
+   * taking against a crowd (their whole reason to exist) without silently
+   * doubling the value of every other stat in the build.
+   */
+  extraHandDamageShare: 0.32,
   /**
    * How fast the square reaches its target velocity, in 1/s. High enough to feel
    * instant, low enough that a flick of the thumb does not read as a teleport.
@@ -75,6 +86,15 @@ export const RUN_UPGRADE_LINES = {
   magnet: { step: 0.25, maxPicks: 5 },
   maxHp: { step: 0.25, maxPicks: 5 },
   moveSpeed: { step: 0.1, maxPicks: 5 },
+  /**
+   * Hands is a flat count, not a percentage: each pick adds one more
+   * simultaneously-fired shot, each aimed at its own nearest bot instead of
+   * piling every bullet onto one target. `step` is unused by the multiplier
+   * formula (pickMultiplier) — refreshStats() computes this stat directly as
+   * PLAYER.hands + picks — and is kept here only so this line fits the same
+   * table shape as its siblings.
+   */
+  hands: { step: 1, maxPicks: 3 },
 } as const;
 
 /**

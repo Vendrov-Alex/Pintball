@@ -1,4 +1,5 @@
 import { META_UPGRADES, type MetaUpgradeId } from '../game/config';
+import { RUN_UPGRADE_IDS, type RunUpgradeId } from '../game/upgrades';
 import { getProfile, setUpgradeLevel, spendGold } from './profile';
 
 export interface MetaUpgradeView {
@@ -44,10 +45,16 @@ export function metaMultiplier(id: MetaUpgradeId): number {
   return 1 + bonusOf(id, getProfile().upgrades[id]);
 }
 
-/** Every line's multiplier, in the shape the engine takes at run start. */
-export function allMetaMultipliers(): Record<MetaUpgradeId, number> {
-  const out = {} as Record<MetaUpgradeId, number>;
-  for (const id of Object.keys(META_UPGRADES) as MetaUpgradeId[]) out[id] = metaMultiplier(id);
+/**
+ * Every in-run line's multiplier, in the shape the engine takes at run start.
+ * Not every RunUpgradeId has a matching permanent upgrade — Hands is in-run
+ * only (see RUN_UPGRADE_LINES.hands) — so those default to a no-op 1.
+ */
+export function allMetaMultipliers(): Record<RunUpgradeId, number> {
+  const out = {} as Record<RunUpgradeId, number>;
+  for (const id of RUN_UPGRADE_IDS) {
+    out[id] = id in META_UPGRADES ? metaMultiplier(id as MetaUpgradeId) : 1;
+  }
   return out;
 }
 

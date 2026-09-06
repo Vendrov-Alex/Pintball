@@ -34,7 +34,10 @@ import {
 const MAX_ENEMIES = 340;
 const MAX_BULLETS = 160;
 const MAX_PARTICLES = 420;
-const MAX_FLOATS = 40;
+// Damage numbers fire far more often than gold/bounty text ever did — a maxed
+// multi-hand build can land a dozen hits a second — so this pool is sized for
+// that, not for the occasional reward popup.
+const MAX_FLOATS = 200;
 /** Two orbs per kill at up to ten kills a second, times an 18 second lifetime. */
 const MAX_PICKUPS = 640;
 
@@ -60,6 +63,8 @@ export interface DerivedStats {
   magnet: number;
   maxHp: number;
   moveSpeed: number;
+  /** Simultaneous firing directions this volley — see RUN_UPGRADE_LINES.hands. */
+  hands: number;
 }
 
 const lerp = (a: number, b: number, t: number): number => a + (b - a) * t;
@@ -105,6 +110,7 @@ export class Game {
     magnet: PLAYER.magnetRadius,
     maxHp: PLAYER.maxHp,
     moveSpeed: PLAYER.moveSpeed,
+    hands: PLAYER.hands,
   };
 
   readonly enemies = new Pool<Enemy>(MAX_ENEMIES, () => ({
@@ -118,7 +124,7 @@ export class Game {
     active: false, x: 0, y: 0, vx: 0, vy: 0, life: 0, maxLife: 1, size: 3, color: '#fff',
   }));
   readonly floats = new Pool<FloatText>(MAX_FLOATS, () => ({
-    active: false, x: 0, y: 0, life: 0, text: '', color: '#fff',
+    active: false, x: 0, y: 0, life: 0, maxLife: 1, text: '', color: '#fff', size: 26,
   }));
   readonly pickups = new Pool<Pickup>(MAX_PICKUPS, () => ({
     active: false, x: 0, y: 0, vx: 0, vy: 0, life: 0, kind: 'gold', value: 1,
@@ -129,7 +135,7 @@ export class Game {
   private readonly grid = new SpatialGrid(44);
   private readonly hooks: EngineHooks;
   private metaMultipliers: PlayerStats = {
-    damage: 1, fireRate: 1, range: 1, magnet: 1, maxHp: 1, moveSpeed: 1,
+    damage: 1, fireRate: 1, range: 1, magnet: 1, maxHp: 1, moveSpeed: 1, hands: 1,
   };
 
   private fireCooldown = 0;
@@ -216,6 +222,10 @@ export class Game {
       magnet: of('magnet', PLAYER.magnetRadius),
       maxHp: of('maxHp', PLAYER.maxHp),
       moveSpeed: of('moveSpeed', PLAYER.moveSpeed),
+      // Flat count, not a multiplier: pickMultiplier's (1+step)^picks formula
+      // would blow this up geometrically, which is why hands is computed here
+      // instead of going through of().
+      hands: PLAYER.hands + this.picks.hands,
     };
   }
 
@@ -540,35 +550,45 @@ export class Game {
 
     if (this.invuln > 0) return;
     this.invuln = PLAYER.iframes;
+    const dealt = Math.min(this.hp, e.damage);
     this.hp = Math.max(0, this.hp - e.damage);
     this.shake = Math.min(22, this.shake + (e.isBoss ? 18 : 7));
     this.burst(this.player.x - nx * 12, this.player.y - ny * 12, 6, '#ff4d6d', 130);
+    this.spawnFloat(
+      this.player.x - nx * 20,
+      this.player.y - ny * 20 - PLAYER.halfSize,
+      `-${Math.round(dealt)}`,
+      '#ff4d6d',
+      { size: 19, life: 0.7 },
+    );
     this.hooks.onPlayerHit();
   }
 
   // ------------------------------------------------------------------ weapon
 
-  private pickTarget(): Enemy | null {
+  /**
+   * Up to `count` nearest bots in range, one per hand. Each hand needs its own
+   * bot to aim at — firing two shots at the same target would not read as
+   * "another hand," so a hand with nothing left to aim at simply doesn't fire.
+   */
+  private pickTargets(count: number): Enemy[] {
     const range = this.stats.range;
-    let best: Enemy | null = null;
-    let bestDist = Infinity;
+    const found: { e: Enemy; d: number }[] = [];
     this.grid.query(this.player.x, this.player.y, range, (e) => {
       const d = Math.hypot(e.x - this.player.x, e.y - this.player.y);
-      if (d > range + e.radius) return;
-      if (d < bestDist) {
-        bestDist = d;
-        best = e;
-      }
+      if (d <= range + e.radius) found.push({ e, d });
     });
-    return best;
+    found.sort((a, b) => a.d - b.d);
+    found.length = Math.min(found.length, count);
+    return found.map((f) => f.e);
   }
 
   private updateWeapon(dt: number): void {
     this.fireCooldown -= dt;
     if (this.fireCooldown > 0) return;
 
-    const target = this.pickTarget();
-    if (!target) {
+    const targets = this.pickTargets(Math.max(1, Math.round(this.stats.hands)));
+    if (targets.length === 0) {
       this.fireCooldown = 0;
       return;
     }
@@ -578,11 +598,14 @@ export class Game {
     this.fireCooldown += interval;
     if (this.fireCooldown < 0) this.fireCooldown = interval;
 
-    this.fireAt(target);
+    // One cooldown tick, one volley: every hand fires together, each at its own
+    // bot. The nearest bot gets the primary (full-damage) hand; anything beyond
+    // that is an extra hand at reduced damage — see PLAYER.extraHandDamageShare.
+    targets.forEach((target, i) => this.fireAt(target, i === 0 ? 1 : PLAYER.extraHandDamageShare));
     this.hooks.onShoot();
   }
 
-  private fireAt(target: Enemy): void {
+  private fireAt(target: Enemy, damageShare: number): void {
     const b = this.bullets.obtain();
     if (!b) return;
 
@@ -602,7 +625,7 @@ export class Game {
     b.vy = (aimY / len) * PLAYER.bulletSpeed;
     b.life = PLAYER.bulletLife;
     b.travel = this.stats.range + 24;
-    b.damage = this.stats.damage;
+    b.damage = this.stats.damage * damageShare;
   }
 
   private updateBullets(dt: number): void {
@@ -644,6 +667,7 @@ export class Game {
       e.ky += (vy / len) * 26;
     }
     this.burst(e.x, e.y, 3, e.color, 90);
+    this.spawnFloat(e.x, e.y - e.radius, `${Math.round(damage)}`, '#eaf6ff', { size: 15, life: 0.55 });
 
     if (e.hp > 0) return;
 
@@ -761,14 +785,24 @@ export class Game {
     }
   }
 
-  private spawnFloat(x: number, y: number, text: string, color: string): void {
+  private spawnFloat(
+    x: number,
+    y: number,
+    text: string,
+    color: string,
+    opts?: { size?: number; life?: number },
+  ): void {
     const f = this.floats.obtain();
     if (!f) return;
-    f.x = x;
-    f.y = y;
-    f.life = 1.1;
+    // A little scatter so a run of hits on the same bot doesn't stack into one
+    // unreadable smear of digits.
+    f.x = x + (Math.random() - 0.5) * 14;
+    f.y = y + (Math.random() - 0.5) * 10;
+    f.life = opts?.life ?? 1.1;
+    f.maxLife = f.life;
     f.text = text;
     f.color = color;
+    f.size = opts?.size ?? 26;
   }
 
   private updateParticles(dt: number): void {

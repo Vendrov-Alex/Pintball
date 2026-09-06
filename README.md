@@ -29,7 +29,7 @@ Swipe left/right, or tap the dots at the bottom.
 | # | Screen  | What it does |
 |---|---------|--------------|
 | 1 | **Battle**  | The `Battle` button and your lifetime records. |
-| 2 | **Upgrade** | Permanent, gold-bought upgrades: Attack, Attack Speed, Range, Health, Magnet, Speed. |
+| 2 | **Upgrade** | Permanent, gold-bought upgrades: Attack, Attack Speed, Range, Health, Magnet, Speed. (More Hands is in-run only — see the level-up table below.) |
 | 3 | **Shop**    | Gold packs unlocked by watching a rewarded video ad. |
 
 ## How a run works
@@ -47,7 +47,12 @@ Swipe left/right, or tap the dots at the bottom.
   are heading toward, runners are faster than you late in a run, and bots you have
   genuinely left behind are recycled to spawn where you actually are.
 - **HP bar** drains every time a bot touches you. Bots bounce off after landing a
-  hit, so they cannot park on top of you.
+  hit, so they cannot park on top of you — and that's the only thing contact does:
+  touching the square costs you HP, never the bot HP. Bots only take damage from
+  your bullets.
+- Every hit shows a **damage number** — small and white on a bot, red and
+  larger on you — so a hit that didn't do what you expected (a falloff shot from
+  an extra hand, an unusually tanky bot) is visible, not just felt.
 - **Every bot drops two orbs where it dies** — gold and XP. Neither counts until
   you walk over it. Your magnet radius vacuums up anything close, orbs live for
   eighteen seconds, and everything you leave behind is gone. This is what makes
@@ -56,17 +61,28 @@ Swipe left/right, or tap the dots at the bottom.
   for level 3, 16 more for level 4, up to **level 15**. Late bots carry richer
   orbs, so the curve keeps pace with the table.
 - Every level-up: **heal 10% of max HP**, then **pick one of three** cards, drawn
-  at random from the six lines you have not maxed out. Each line takes **5 picks**
-  and a maxed line stops being offered:
+  at random from the seven lines you have not maxed out. A maxed line stops being
+  offered:
 
-  | Line | Effect | Per pick |
-  |---|---|---|
-  | Rapid Fire | Attack speed | +25% |
-  | Heavy Rounds | Shot damage | +25% |
-  | Wide Scope | Firing radius | +25% |
-  | Magnet | Pickup radius | +25% |
-  | Reinforce | Max health, granted as healing | +25% |
-  | Sprint | Movement speed | +10% |
+  | Line | Effect | Per pick | Picks |
+  |---|---|---|---|
+  | Rapid Fire | Attack speed | +25% | 5 |
+  | Heavy Rounds | Shot damage | +25% | 5 |
+  | Wide Scope | Firing radius | +25% | 5 |
+  | Magnet | Pickup radius | +25% | 5 |
+  | Reinforce | Max health, granted as healing | +25% | 5 |
+  | Sprint | Movement speed | +10% | 5 |
+  | More Hands | +1 simultaneous firing direction, each aimed at its own bot | see below | 3 |
+
+  More Hands doesn't fit the "+X% to one stat" shape the rest of the table uses:
+  the first hand always fires at full damage, and every hand past that fires at
+  `PLAYER.extraHandDamageShare` (32%) of it. A second full-damage gun looked like
+  a plain multiplier stat but wasn't — it roughly doubles total output the instant
+  two bots are in range, which is most of the game past wave two. Measured on the
+  balance harness, that took a meta-progression tier that used to win 17% of the
+  time to 100% off a single pick. The reduced share and the 3-pick cap (four
+  directions at most) bring the ladder back to its original shape while keeping
+  the line clearly worth taking against a crowd, which is the point of it.
 - At 3:00 the **boss** arrives: x10 HP, contact damage and gold of a regular bot.
   An arrow pins it to the screen edge whenever it is off camera. It starts slower
   than you and **enrages** after thirty seconds, accelerating until it is
@@ -109,12 +125,12 @@ on the progression ladder. It reports win rate, survival time, kills, level and
 gold for each, and fails if the app logged any console error.
 
 ```
-runs per row: 5
+runs per row: 6
 meta         win%   time   kills  lvl   gold  onscreen  orbs
-fresh         0%    98.5  128.2   7.8   300.6   142.8   0.8
-third         0%   191.5  634.0  15.0  1938.0   253.4   0.8
-two-third    60%   216.8  849.4  15.0  3040.2   133.8   0.8
-maxed       100%   221.6  963.2  15.0  3737.0    34.0   5.2
+fresh         0%    87.2  126.3   7.7   293.3    98.5   0.0
+third        17%   193.8  760.8  15.0  2462.7   129.7   2.3
+two-third   100%   213.3  948.5  15.0  3699.0    25.8   5.3
+maxed       100%   195.5  907.8  15.0  3546.0    13.8   8.3
 ```
 
 The pilot in the harness is a competent kiter: it flees the local crowd weighted

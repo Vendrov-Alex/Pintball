@@ -281,10 +281,16 @@ export class Renderer {
   private drawFloats(ctx: CanvasRenderingContext2D, game: Game): void {
     ctx.save();
     ctx.textAlign = 'center';
-    ctx.font = '700 26px system-ui, -apple-system, sans-serif';
+    let lastSize = -1;
     for (const f of game.floats.items) {
       if (!f.active) continue;
-      ctx.globalAlpha = Math.min(1, f.life);
+      // Damage numbers and reward text use different sizes; only touch the font
+      // (a measurable cost on some canvas backends) when the size actually changes.
+      if (f.size !== lastSize) {
+        ctx.font = `700 ${f.size}px system-ui, -apple-system, sans-serif`;
+        lastSize = f.size;
+      }
+      ctx.globalAlpha = Math.max(0, f.life / f.maxLife);
       ctx.fillStyle = f.color;
       ctx.fillText(f.text, f.x, f.y);
     }
