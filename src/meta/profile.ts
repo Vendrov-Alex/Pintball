@@ -1,7 +1,12 @@
 import { load, save } from '../core/storage';
 import { META_UPGRADES, type MetaUpgradeId } from '../game/config';
 
-const STORAGE_KEY = 'pintball.profile.v1';
+const STORAGE_KEY = 'roblaksim.profile.v1';
+/**
+ * The key this game shipped under before the rename. Read once, so a player who
+ * already has progress does not lose it. Safe to delete after the first release.
+ */
+const LEGACY_STORAGE_KEY = 'pintball.profile.v1';
 const PROFILE_VERSION = 1;
 
 export interface RunStats {
@@ -66,7 +71,7 @@ function hydrate(raw: string): Profile {
 }
 
 export async function initProfile(): Promise<Profile> {
-  const raw = await load(STORAGE_KEY);
+  const raw = (await load(STORAGE_KEY)) ?? (await load(LEGACY_STORAGE_KEY));
   if (raw) {
     try {
       profile = hydrate(raw);

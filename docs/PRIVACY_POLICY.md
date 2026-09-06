@@ -1,9 +1,9 @@
-# Privacy Policy — Pintball Survivor
+# Privacy Policy — Roblaksim Survivor
 
 **Last updated:** replace with the date you publish this.
 **Contact:** replace with the support email you enter in the store listings.
 
-This policy covers the mobile game *Pintball Survivor* on the App Store and
+This policy covers the mobile game *Roblaksim Survivor* on the App Store and
 Google Play.
 
 > Publish this file at a public URL and paste that URL into both store consoles.
@@ -94,7 +94,7 @@ Any of these is acceptable to both stores; pick whichever you already have.
 - [ ] GitHub Pages — push the file as `index.md` to a `gh-pages` branch or a
       `/docs` folder, enable Pages in the repository settings. Free, and the URL
       is stable.
-- [ ] A page on your own site, e.g. `https://roblaksim.com/pintball/privacy`
+- [ ] A page on your own site, e.g. `https://roblaksim.com/roblaksim/privacy`
 - [ ] A published Notion page, a Google Site, or a GitHub Gist rendered through
       a static host
 

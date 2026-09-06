@@ -13,7 +13,7 @@ export class HomeScreen {
       <div class="screen__body">
         <header class="brand">
           <div class="brand__mark" aria-hidden="true"><span></span></div>
-          <h1 class="brand__title">Pintball<span>Survivor</span></h1>
+          <h1 class="brand__title">Roblaksim<span>Survivor</span></h1>
           <p class="brand__tag">${Math.round(RUN_DURATION / 60)} minutes. Endless waves. One boss.</p>
         </header>
 

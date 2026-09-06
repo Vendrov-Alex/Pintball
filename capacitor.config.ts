@@ -1,8 +1,8 @@
 import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
-  appId: 'com.roblaksim.pintball',
-  appName: 'Pintball Survivor',
+  appId: 'com.roblaksim.survivor',
+  appName: 'Roblaksim Survivor',
   webDir: 'dist',
   android: {
     // Keeps the WebView from resizing (and re-laying out the canvas) when the

@@ -1,7 +1,7 @@
 /**
  * Smoke test for the single-file web build.
  *
- * Serves artifact/pintball-survivor.html with no charset header and no viewport
+ * Serves artifact/roblaksim-survivor.html with no charset header and no viewport
  * meta of its own — the two things a host might not provide — then boots it,
  * drives the joystick, and fails on any console error. Both of those omissions
  * have already caused real defects: mojibake upgrade icons, and touch input
@@ -13,7 +13,7 @@ import { chromium } from 'playwright';
 import { createServer } from 'node:http';
 import { mkdirSync, readFileSync } from 'node:fs';
 
-const html = readFileSync('artifact/pintball-survivor.html', 'utf8');
+const html = readFileSync('artifact/roblaksim-survivor.html', 'utf8');
 // Deliberately no charset in the content-type: this proves the bundle is ASCII-safe.
 const server = createServer((_, res) => {
   res.writeHead(200, { 'content-type': 'text/html' });

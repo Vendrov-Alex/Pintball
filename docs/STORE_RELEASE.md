@@ -9,8 +9,8 @@ with no accounts, no purchases and no analytics. Work top to bottom.
 
 | Field | Value | Where |
 |---|---|---|
-| Bundle ID / Application ID | `com.roblaksim.pintball` | `capacitor.config.ts` |
-| Display name | Pintball Survivor | `capacitor.config.ts` |
+| Bundle ID / Application ID | `com.roblaksim.survivor` | `capacitor.config.ts` |
+| Display name | Roblaksim Survivor | `capacitor.config.ts` |
 | Version name | `1.0.0` | `package.json` |
 | Version code / build | `1` | Native project, bumped every upload |
 

@@ -1,4 +1,4 @@
-# Pintball Survivor
+# Roblaksim Survivor
 
 A three-minute wave-survival game for iOS and Android, in the Survivor.io mould.
 You are a square. You move with a floating thumbstick across an open, unbounded
