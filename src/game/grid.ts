@@ -6,6 +6,11 @@ import type { Enemy } from './types';
  * Bullet hit tests and bot-to-bot separation are both "what is near this point"
  * queries. Brute force is O(n^2) and at 250+ bots that is ~60k distance checks a
  * frame; the grid keeps it near-linear.
+ *
+ * The world is unbounded now that the player moves, so cells are addressed by a
+ * multiplicative hash rather than a packed coordinate. Two distant cells can share
+ * a bucket; that only costs a few extra distance checks, because every caller
+ * verifies the real distance anyway.
  */
 export class SpatialGrid {
   private readonly cells = new Map<number, Enemy[]>();
@@ -16,8 +21,7 @@ export class SpatialGrid {
   }
 
   private key(cx: number, cy: number): number {
-    // Cantor-style pairing on shifted coordinates; bots never leave +/-4096 vu.
-    return (cx + 4096) * 8192 + (cy + 4096);
+    return ((cx * 92837111) ^ (cy * 689287499)) | 0;
   }
 
   rebuild(enemies: readonly Enemy[]): void {

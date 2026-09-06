@@ -1,7 +1,7 @@
 import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
-  appId: 'com.vendrov.pintball',
+  appId: 'com.roblaksim.pintball',
   appName: 'Pintball Survivor',
   webDir: 'dist',
   android: {

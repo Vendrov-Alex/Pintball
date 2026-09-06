@@ -1,6 +1,7 @@
 import {
   BOSS,
   BOSS_KILL_BONUS,
+  DESPAWN_FACTOR,
   ENEMY_BASE,
   ENEMY_KINDS,
   ENEMY_SCALING,
@@ -9,6 +10,7 @@ import {
   PLAYER,
   RUN_DURATION,
   RUN_UPGRADES,
+  SPAWN_LEAD_BIAS,
   VIEW_SHORT_SIDE,
   WAVES,
   WAVE_SECONDS,
@@ -18,7 +20,7 @@ import {
 } from './config';
 import { SpatialGrid } from './grid';
 import { Pool } from './pool';
-import type { Bullet, Enemy, FloatText, Particle, RunResult, ViewInfo } from './types';
+import type { Bullet, Enemy, FloatText, Particle, RunResult, Vec, ViewInfo } from './types';
 import {
   BOUNTY_GOLD,
   REPAIR_SHARE,
@@ -59,6 +61,16 @@ export class Game {
   phase: Phase = 'idle';
   view: ViewInfo = { cssW: 1, cssH: 1, scale: 1, worldW: 1, worldH: 1, spawnRx: 1, spawnRy: 1 };
 
+  /**
+   * The square's position in world space. The world is unbounded: the camera
+   * follows the player and bots are spawned and recycled relative to it, which is
+   * what makes a survivor-style run feel open instead of arena-shaped.
+   */
+  readonly player: Vec = { x: 0, y: 0 };
+  readonly velocity: Vec = { x: 0, y: 0 };
+  /** Last non-zero heading, used to bias spawns ahead of the player. */
+  readonly heading: Vec = { x: 0, y: 1 };
+
   /** Seconds of gameplay elapsed; frozen while a level-up card is open. */
   elapsed = 0;
   hp: number = PLAYER.maxHp;
@@ -69,6 +81,8 @@ export class Game {
   gold = 0;
   bossActive = false;
   bossKilled = false;
+  /** Seconds since the boss appeared; drives its enrage ramp. */
+  bossTimer = 0;
   /** Screen shake amplitude in world units, decays every frame. */
   shake = 0;
   /** Rendering-only pulse used by the range circle when it grows. */
@@ -82,7 +96,7 @@ export class Game {
     speed: 50, damage: 1, gold: 1, kind: 'grunt', color: '#fff', hitTimer: 0, flash: 0, isBoss: false,
   }));
   readonly bullets = new Pool<Bullet>(MAX_BULLETS, () => ({
-    active: false, x: 0, y: 0, vx: 0, vy: 0, life: 0, damage: 1,
+    active: false, x: 0, y: 0, vx: 0, vy: 0, life: 0, travel: 0, damage: 1,
   }));
   readonly particles = new Pool<Particle>(MAX_PARTICLES, () => ({
     active: false, x: 0, y: 0, vx: 0, vy: 0, life: 0, maxLife: 1, size: 3, color: '#fff',
@@ -100,9 +114,9 @@ export class Game {
   private fireCooldown = 0;
   private spawnCarry = 0;
   private invuln = 0;
-  private aimActive = false;
-  private aimX = 0;
-  private aimY = 0;
+  /** Normalised movement input, magnitude 0..1. */
+  private moveX = 0;
+  private moveY = 0;
 
   constructor(hooks: EngineHooks) {
     this.hooks = hooks;
@@ -140,6 +154,7 @@ export class Game {
     this.gold = 0;
     this.bossActive = false;
     this.bossKilled = false;
+    this.bossTimer = 0;
     this.boss = null;
     this.picks = emptyPicks();
     this.fireCooldown = 0;
@@ -147,7 +162,14 @@ export class Game {
     this.invuln = 0;
     this.shake = 0;
     this.rangePulse = 0;
-    this.aimActive = false;
+    this.player.x = 0;
+    this.player.y = 0;
+    this.velocity.x = 0;
+    this.velocity.y = 0;
+    this.heading.x = 0;
+    this.heading.y = 1;
+    this.moveX = 0;
+    this.moveY = 0;
     this.enemies.clear();
     this.bullets.clear();
     this.particles.clear();
@@ -156,18 +178,6 @@ export class Game {
     this.refreshStats();
     this.phase = 'running';
     this.prewarm();
-  }
-
-  /**
-   * Seeds a handful of bots already halfway in, so the run opens with something
-   * to shoot instead of several seconds of an empty field.
-   */
-  private prewarm(): void {
-    const kind = ENEMY_KINDS.grunt;
-    for (let i = 0; i < 6; i++) {
-      const a = (i / 6) * Math.PI * 2 + Math.random() * 0.5;
-      this.spawnEnemy(kind, Math.cos(a) * this.view.spawnRx * 0.55, Math.sin(a) * this.view.spawnRy * 0.55);
-    }
   }
 
   abandon(): void {
@@ -184,19 +194,24 @@ export class Game {
 
   // ------------------------------------------------------------------- input
 
-  setAim(worldX: number, worldY: number): void {
-    const len = Math.hypot(worldX, worldY);
-    if (len < 1) {
-      this.aimActive = false;
+  /** Joystick or keyboard direction. Magnitude above 1 is clamped. */
+  setMove(x: number, y: number): void {
+    const len = Math.hypot(x, y);
+    if (len < 0.001) {
+      this.moveX = 0;
+      this.moveY = 0;
       return;
     }
-    this.aimActive = PLAYER.touchAim;
-    this.aimX = worldX / len;
-    this.aimY = worldY / len;
+    const m = Math.min(1, len);
+    this.moveX = (x / len) * m;
+    this.moveY = (y / len) * m;
+    this.heading.x = x / len;
+    this.heading.y = y / len;
   }
 
-  clearAim(): void {
-    this.aimActive = false;
+  stopMove(): void {
+    this.moveX = 0;
+    this.moveY = 0;
   }
 
   // ------------------------------------------------------------- progression
@@ -226,7 +241,7 @@ export class Game {
         break;
       case 'bounty':
         this.gold += BOUNTY_GOLD;
-        this.spawnFloat(0, -PLAYER.halfSize * 3, `+${BOUNTY_GOLD}`, '#ffd23a');
+        this.spawnFloat(this.player.x, this.player.y - PLAYER.halfSize * 3, `+${BOUNTY_GOLD}`, '#ffd23a');
         break;
     }
     this.phase = 'running';
@@ -265,7 +280,9 @@ export class Game {
     this.invuln = Math.max(0, this.invuln - dt);
 
     if (!this.bossActive && !this.bossKilled && this.elapsed >= RUN_DURATION) this.spawnBoss();
+    if (this.bossActive) this.bossTimer += dt;
 
+    this.updatePlayer(dt);
     this.grid.rebuild(this.enemies.items);
     this.updateSpawning(dt);
     this.updateEnemies(dt);
@@ -275,6 +292,17 @@ export class Game {
     this.updateFloats(dt);
 
     if (this.hp <= 0) this.end(false);
+  }
+
+  private updatePlayer(dt: number): void {
+    const targetVx = this.moveX * PLAYER.moveSpeed;
+    const targetVy = this.moveY * PLAYER.moveSpeed;
+    // Framerate-independent approach to the target velocity.
+    const t = 1 - Math.exp(-PLAYER.moveResponse * dt);
+    this.velocity.x = lerp(this.velocity.x, targetVx, t);
+    this.velocity.y = lerp(this.velocity.y, targetVy, t);
+    this.player.x += this.velocity.x * dt;
+    this.player.y += this.velocity.y * dt;
   }
 
   // ---------------------------------------------------------------- spawning
@@ -299,6 +327,17 @@ export class Game {
     }
   }
 
+  /**
+   * Picks a spawn angle. Most bots appear in the hemisphere the player is running
+   * toward, so that sprinting in a straight line runs you into the wave rather
+   * than away from it — otherwise kiting forever is the dominant strategy.
+   */
+  private spawnAngle(): number {
+    const forward = Math.atan2(this.heading.y, this.heading.x);
+    if (Math.random() < SPAWN_LEAD_BIAS) return forward + (Math.random() - 0.5) * Math.PI;
+    return forward + Math.PI + (Math.random() - 0.5) * Math.PI;
+  }
+
   /** Returns how many bots were actually placed. */
   private spawnFromWave(mix: Partial<Record<EnemyKindId, number>>): number {
     const entries = Object.entries(mix) as [EnemyKindId, number][];
@@ -315,12 +354,16 @@ export class Game {
     }
 
     const kind = ENEMY_KINDS[picked];
-    const angle = Math.random() * Math.PI * 2;
+    const angle = this.spawnAngle();
     for (let i = 0; i < kind.cluster; i++) {
       // Cluster members fan out around the anchor so they arrive as a pack.
       const a = angle + (i - (kind.cluster - 1) / 2) * 0.09;
       const pad = 1 + (i % 2) * 0.04;
-      this.spawnEnemy(kind, Math.cos(a) * this.view.spawnRx * pad, Math.sin(a) * this.view.spawnRy * pad);
+      this.spawnEnemy(
+        kind,
+        this.player.x + Math.cos(a) * this.view.spawnRx * pad,
+        this.player.y + Math.sin(a) * this.view.spawnRy * pad,
+      );
     }
     return kind.cluster;
   }
@@ -354,9 +397,9 @@ export class Game {
   private spawnBoss(): void {
     const e = this.enemies.obtain();
     if (!e) return;
-    const angle = Math.random() * Math.PI * 2;
-    e.x = Math.cos(angle) * this.view.spawnRx;
-    e.y = Math.sin(angle) * this.view.spawnRy;
+    const angle = this.spawnAngle();
+    e.x = this.player.x + Math.cos(angle) * this.view.spawnRx;
+    e.y = this.player.y + Math.sin(angle) * this.view.spawnRy;
     e.kx = 0;
     e.ky = 0;
     e.maxHp = ENEMY_BASE.hp * ENEMY_SCALING.hpAtEnd * BOSS.hpMultiplier * BOSS.extraHpFactor;
@@ -377,20 +420,45 @@ export class Game {
     this.hooks.onBossSpawn();
   }
 
+  /**
+   * Seeds a handful of bots already halfway in, so the run opens with something
+   * to shoot instead of several seconds of an empty field.
+   */
+  private prewarm(): void {
+    const kind = ENEMY_KINDS.grunt;
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * Math.PI * 2 + Math.random() * 0.5;
+      this.spawnEnemy(kind, Math.cos(a) * this.view.spawnRx * 0.55, Math.sin(a) * this.view.spawnRy * 0.55);
+    }
+  }
+
   // ----------------------------------------------------------------- enemies
 
   private updateEnemies(dt: number): void {
     const contactPad = PLAYER.halfSize * 1.15;
+    const cullSq = Math.pow(Math.max(this.view.spawnRx, this.view.spawnRy) * DESPAWN_FACTOR, 2);
+
     for (const e of this.enemies.items) {
       if (!e.active) continue;
 
       e.hitTimer = Math.max(0, e.hitTimer - dt);
       e.flash = Math.max(0, e.flash - dt * 6);
 
-      // Seek the square at the origin.
-      const dist = Math.hypot(e.x, e.y) || 1;
-      let vx = (-e.x / dist) * e.speed;
-      let vy = (-e.y / dist) * e.speed;
+      const dx = this.player.x - e.x;
+      const dy = this.player.y - e.y;
+      const distSq = dx * dx + dy * dy;
+
+      // A bot the player has outrun is dead weight in the pool; recycling it frees
+      // the slot for one that spawns where the player actually is.
+      if (!e.isBoss && distSq > cullSq) {
+        e.active = false;
+        continue;
+      }
+
+      const dist = Math.sqrt(distSq) || 1;
+      const speed = e.isBoss ? e.speed * this.bossEnrage() : e.speed;
+      let vx = (dx / dist) * speed;
+      let vy = (dy / dist) * speed;
 
       // Separation keeps the swarm readable instead of collapsing to one dot.
       if (!e.isBoss) {
@@ -398,14 +466,14 @@ export class Game {
         let sy = 0;
         this.grid.query(e.x, e.y, e.radius * 2.1, (other) => {
           if (other === e || other.isBoss) return;
-          const dx = e.x - other.x;
-          const dy = e.y - other.y;
-          const d2 = dx * dx + dy * dy;
+          const ox = e.x - other.x;
+          const oy = e.y - other.y;
+          const d2 = ox * ox + oy * oy;
           const minD = e.radius + other.radius;
           if (d2 > 0.0001 && d2 < minD * minD) {
             const d = Math.sqrt(d2);
-            sx += (dx / d) * (1 - d / minD);
-            sy += (dy / d) * (1 - d / minD);
+            sx += (ox / d) * (1 - d / minD);
+            sy += (oy / d) * (1 - d / minD);
           }
         });
         vx += sx * ENEMY_BASE.separation;
@@ -420,26 +488,34 @@ export class Game {
       e.x += (vx + e.kx) * dt;
       e.y += (vy + e.ky) * dt;
 
-      if (dist < e.radius + contactPad) this.contact(e);
+      if (dist < e.radius + contactPad) this.contact(e, dx / dist, dy / dist);
     }
   }
 
-  private contact(e: Enemy): void {
+  /** Speed multiplier the boss has earned by taking too long to die. */
+  bossEnrage(): number {
+    if (!this.bossActive) return 1;
+    const over = this.bossTimer - BOSS.enrageAfter;
+    if (over <= 0) return 1;
+    return Math.min(BOSS.enrageMaxSpeedMultiplier, 1 + over * BOSS.enrageRatePerSecond);
+  }
+
+  /** `nx, ny` points from the bot toward the player. */
+  private contact(e: Enemy, nx: number, ny: number): void {
     if (e.hitTimer > 0) return;
     e.hitTimer = e.isBoss ? BOSS.hitCooldown : ENEMY_BASE.hitCooldown;
 
     // Bots always bounce off, whether or not the hit landed, so they cannot park
     // on top of the square and grind it down through the invulnerability window.
-    const d = Math.hypot(e.x, e.y) || 1;
     const push = e.isBoss ? ENEMY_BASE.knockback * 0.45 : ENEMY_BASE.knockback;
-    e.kx = (e.x / d) * push;
-    e.ky = (e.y / d) * push;
+    e.kx = -nx * push;
+    e.ky = -ny * push;
 
     if (this.invuln > 0) return;
     this.invuln = PLAYER.iframes;
     this.hp = Math.max(0, this.hp - e.damage);
     this.shake = Math.min(22, this.shake + (e.isBoss ? 18 : 7));
-    this.burst(e.x * 0.4, e.y * 0.4, 6, '#ff4d6d', 130);
+    this.burst(this.player.x - nx * 12, this.player.y - ny * 12, 6, '#ff4d6d', 130);
     this.hooks.onPlayerHit();
   }
 
@@ -448,19 +524,12 @@ export class Game {
   private pickTarget(): Enemy | null {
     const range = this.stats.range;
     let best: Enemy | null = null;
-    let bestScore = Infinity;
-    this.grid.query(0, 0, range, (e) => {
-      const d = Math.hypot(e.x, e.y);
+    let bestDist = Infinity;
+    this.grid.query(this.player.x, this.player.y, range, (e) => {
+      const d = Math.hypot(e.x - this.player.x, e.y - this.player.y);
       if (d > range + e.radius) return;
-      let score = d;
-      if (this.aimActive) {
-        // A finger on the screen biases targeting toward that direction without
-        // ever letting the turret shoot something outside its circle.
-        const dot = (e.x / (d || 1)) * this.aimX + (e.y / (d || 1)) * this.aimY;
-        score = d * (1 - PLAYER.touchAimWeight * Math.max(0, dot));
-      }
-      if (score < bestScore) {
-        bestScore = score;
+      if (d < bestDist) {
+        bestDist = d;
         best = e;
       }
     });
@@ -489,34 +558,36 @@ export class Game {
   private fireAt(target: Enemy): void {
     const b = this.bullets.obtain();
     if (!b) return;
-    // Lead the shot: aim where the bot will be when the bullet arrives.
-    const dist = Math.hypot(target.x, target.y);
-    const travel = dist / PLAYER.bulletSpeed;
-    const speed = target.speed;
-    const tDist = dist || 1;
-    const px = target.x + (-target.x / tDist) * speed * travel;
-    const py = target.y + (-target.y / tDist) * speed * travel;
-    const len = Math.hypot(px, py) || 1;
 
-    b.x = (px / len) * (PLAYER.halfSize + 4);
-    b.y = (py / len) * (PLAYER.halfSize + 4);
-    b.vx = (px / len) * PLAYER.bulletSpeed;
-    b.vy = (py / len) * PLAYER.bulletSpeed;
+    // Lead the shot: aim where the bot will be when the bullet arrives.
+    const dx = target.x - this.player.x;
+    const dy = target.y - this.player.y;
+    const dist = Math.hypot(dx, dy) || 1;
+    const travelTime = dist / PLAYER.bulletSpeed;
+    // The bot is heading straight at the player, so its velocity is -normal * speed.
+    const aimX = dx - (dx / dist) * target.speed * travelTime;
+    const aimY = dy - (dy / dist) * target.speed * travelTime;
+    const len = Math.hypot(aimX, aimY) || 1;
+
+    b.x = this.player.x + (aimX / len) * (PLAYER.halfSize + 4);
+    b.y = this.player.y + (aimY / len) * (PLAYER.halfSize + 4);
+    b.vx = (aimX / len) * PLAYER.bulletSpeed;
+    b.vy = (aimY / len) * PLAYER.bulletSpeed;
     b.life = PLAYER.bulletLife;
+    b.travel = this.stats.range + 24;
     b.damage = this.stats.damage;
   }
 
   private updateBullets(dt: number): void {
-    const range = this.stats.range;
     for (const b of this.bullets.items) {
       if (!b.active) continue;
+      const step = Math.hypot(b.vx, b.vy) * dt;
       b.x += b.vx * dt;
       b.y += b.vy * dt;
       b.life -= dt;
+      b.travel -= step;
 
-      // Bullets die at the edge of the firing circle: the circle is the weapon's
-      // stated boundary, so it has to be a real limit, not decoration.
-      if (b.life <= 0 || Math.hypot(b.x, b.y) > range + 24) {
+      if (b.life <= 0 || b.travel <= 0) {
         b.active = false;
         continue;
       }
@@ -561,7 +632,7 @@ export class Game {
       this.bossKilled = true;
       this.gold += BOSS_KILL_BONUS;
       this.gainKillXp(10);
-      this.spawnFloat(0, -PLAYER.halfSize * 4, `+${BOSS_KILL_BONUS}`, '#ffd23a');
+      this.spawnFloat(this.player.x, this.player.y - PLAYER.halfSize * 4, `+${BOSS_KILL_BONUS}`, '#ffd23a');
       this.end(true);
       return;
     }

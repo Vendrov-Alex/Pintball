@@ -14,7 +14,9 @@
     "android": "npm run cap:sync && cap open android",
     "ios": "npm run cap:sync && cap open ios",
     "qa": "node scripts/simulate.mjs --runs 4 --sweep",
-    "qa:shots": "node scripts/simulate.mjs --runs 1 --shots"
+    "qa:shots": "node scripts/simulate.mjs --runs 1 --shots",
+    "build:web": "node scripts/build-artifact.mjs",
+    "qa:web": "npm run build:web && node scripts/check-web-build.mjs"
   },
   "dependencies": {
     "@capacitor-community/admob": "^7.0.0",

@@ -74,16 +74,62 @@ const simulateRun = async (page, meta) =>
       const picked = [];
       let steps = 0;
       const maxSteps = 60 * 400;
+      // Autopilot heading, kept between frames so the pilot commits to a direction
+      // instead of jittering when the crowd is balanced around it.
+      let hx = 0;
+      let hy = 1;
+
+      /**
+       * Stands in for a competent player: run from the local crowd, weighted by
+       * inverse square distance, with a tangential component so it circles the
+       * swarm rather than sprinting head-first into the bots that spawn ahead of
+       * it. Measuring balance against a stationary dummy would be meaningless now
+       * that movement is the core of the game.
+       */
+      const steer = () => {
+        let ax = 0;
+        let ay = 0;
+        const px = game.player.x;
+        const py = game.player.y;
+        for (const e of game.enemies.items) {
+          if (!e.active) continue;
+          const dx = px - e.x;
+          const dy = py - e.y;
+          const d2 = dx * dx + dy * dy;
+          if (d2 > 340 * 340 || d2 < 1) continue;
+          const w = (e.isBoss ? 6 : 1) / d2;
+          ax += dx * w;
+          ay += dy * w;
+        }
+        const len = Math.hypot(ax, ay);
+        if (len > 1e-6) {
+          ax /= len;
+          ay /= len;
+          // 40% tangential: strafe around the pressure instead of fleeing straight.
+          const tx = -ay * 0.4;
+          const ty = ax * 0.4;
+          hx = ax + tx;
+          hy = ay + ty;
+          const hl = Math.hypot(hx, hy) || 1;
+          hx /= hl;
+          hy /= hl;
+        }
+        game.setMove(hx, hy);
+      };
 
       while (game.phase !== 'ended' && steps < maxSteps) {
         if (game.phase === 'levelup') {
-          // Greedy but realistic player: fire rate, then damage, then range.
+          // Balanced player: always top up whichever line is furthest behind.
           const order = ['fireRate', 'damage', 'range'];
-          const next = order.find((id) => game.picks[id] < 5) ?? 'repair';
+          const open = order.filter((id) => game.picks[id] < 5);
+          const next = open.length
+            ? open.reduce((a, b) => (game.picks[a] <= game.picks[b] ? a : b))
+            : 'repair';
           picked.push(next);
           game.applyChoice(next);
           continue;
         }
+        if (steps % 6 === 0) steer();
         game.update(dt);
         steps += 1;
       }
@@ -98,6 +144,7 @@ const simulateRun = async (page, meta) =>
         hp: Math.round(game.hp),
         picks: { ...game.picks },
         pickOrder: picked.length,
+        travelled: Math.round(Math.hypot(game.player.x, game.player.y)),
         liveEnemies: game.enemies.countActive(),
       };
     },

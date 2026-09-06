@@ -9,7 +9,7 @@ with no accounts, no purchases and no analytics. Work top to bottom.
 
 | Field | Value | Where |
 |---|---|---|
-| Bundle ID / Application ID | `com.vendrov.pintball` | `capacitor.config.ts` |
+| Bundle ID / Application ID | `com.roblaksim.pintball` | `capacitor.config.ts` |
 | Display name | Pintball Survivor | `capacitor.config.ts` |
 | Version name | `1.0.0` | `package.json` |
 | Version code / build | `1` | Native project, bumped every upload |
@@ -151,6 +151,8 @@ consoles. Both stores reject submissions with an unreachable policy link.
       (already handled in `src/ui/screens/shop.ts` — verify it stayed that way)
 - [ ] Portrait lock verified on a tablet, not just a phone
 - [ ] Safe areas verified on a notched iPhone and a gesture-navigation Android
+- [ ] Joystick tested with both thumbs and near the screen edges; the base must
+      follow a long drag instead of pinning
 - [ ] Android hardware back button exits the run, then the screen, then the app
 - [ ] Backgrounding mid-run and returning does not fast-forward the simulation
 - [ ] Profile survives an app update (change the version, reinstall over the top)

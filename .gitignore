@@ -10,7 +10,9 @@ dist/
 
 # QA output
 /screenshots
-.interactive-tmp.mjs
+/dist-artifact
+/artifact
+.probe.mjs
 
 # Generated store assets
 /resources/generated

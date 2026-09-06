@@ -1,8 +1,8 @@
 import { sfx, unlockAudio } from '../core/audio';
 import * as haptics from '../core/haptics';
-import { MAX_LEVEL, RUN_DURATION, WAVES, WAVE_SECONDS } from '../game/config';
+import { JOYSTICK, MAX_LEVEL, RUN_DURATION, WAVES, WAVE_SECONDS } from '../game/config';
 import { Game } from '../game/engine';
-import { Renderer } from '../game/renderer';
+import { Renderer, type JoystickView } from '../game/renderer';
 import type { RunResult } from '../game/types';
 import type { UpgradeChoice } from '../game/upgrades';
 import { metaMultiplier } from '../meta/metaUpgrades';
@@ -39,6 +39,8 @@ export class Battle {
   private accumulator = 0;
   private active = false;
   private lastWave = -1;
+  private stickPointer: number | null = null;
+  private stick: JoystickView = { active: false, baseX: 0, baseY: 0, knobX: 0, knobY: 0 };
   private hudCache = { hp: -1, xp: -1, level: -1, gold: -1, time: -1, wave: -1 };
 
   constructor(private readonly onExit: (result: RunResult | null) => void) {
@@ -125,7 +127,7 @@ export class Battle {
       (window as unknown as Record<string, unknown>).__battle = this;
       (window as unknown as Record<string, unknown>).__game = this.game;
     }
-    this.bindAim();
+    this.bindMovement();
     window.addEventListener('resize', () => this.layout());
     document.addEventListener('visibilitychange', () => {
       // Backgrounding must not fast-forward the simulation when we come back.
@@ -144,6 +146,8 @@ export class Battle {
     this.levelModal.hidden = true;
     this.bossBar.hidden = true;
     this.lastWave = -1;
+    this.stickPointer = null;
+    this.stick.active = false;
     this.hudCache = { hp: -1, xp: -1, level: -1, gold: -1, time: -1, wave: -1 };
 
     this.layout();
@@ -170,29 +174,75 @@ export class Battle {
 
   // ------------------------------------------------------------------- input
 
-  private bindAim(): void {
-    const toWorld = (ev: PointerEvent): { x: number; y: number } => {
+  /**
+   * Floating virtual joystick, the Survivor.io convention: the stick is created
+   * wherever the thumb lands rather than pinned to a corner, so the control never
+   * fights the player's grip and both hands work equally well.
+   */
+  private bindMovement(): void {
+    const local = (ev: PointerEvent): { x: number; y: number } => {
       const rect = this.canvas.getBoundingClientRect();
-      const { scale } = this.game.view;
-      return {
-        x: (ev.clientX - rect.left - rect.width / 2) / scale,
-        y: (ev.clientY - rect.top - rect.height / 2) / scale,
-      };
+      return { x: ev.clientX - rect.left, y: ev.clientY - rect.top };
     };
 
     this.canvas.addEventListener('pointerdown', (ev) => {
+      if (this.stickPointer !== null) return;
+      this.stickPointer = ev.pointerId;
       this.canvas.setPointerCapture(ev.pointerId);
-      const p = toWorld(ev);
-      this.game.setAim(p.x, p.y);
+      const p = local(ev);
+      this.stick = { active: true, baseX: p.x, baseY: p.y, knobX: p.x, knobY: p.y };
     });
+
     this.canvas.addEventListener('pointermove', (ev) => {
-      if (ev.buttons === 0 && ev.pointerType === 'mouse') return;
-      const p = toWorld(ev);
-      this.game.setAim(p.x, p.y);
+      if (this.stickPointer !== ev.pointerId) return;
+      const p = local(ev);
+      let dx = p.x - this.stick.baseX;
+      let dy = p.y - this.stick.baseY;
+      const dist = Math.hypot(dx, dy);
+
+      if (dist > JOYSTICK.maxTravel) {
+        // Drag past the edge and the base follows the thumb, so a long swipe never
+        // runs out of stick.
+        const excess = dist - JOYSTICK.maxTravel;
+        this.stick.baseX += (dx / dist) * excess;
+        this.stick.baseY += (dy / dist) * excess;
+        dx = (dx / dist) * JOYSTICK.maxTravel;
+        dy = (dy / dist) * JOYSTICK.maxTravel;
+      }
+
+      this.stick.knobX = this.stick.baseX + dx;
+      this.stick.knobY = this.stick.baseY + dy;
+
+      if (Math.hypot(dx, dy) < JOYSTICK.deadZone) this.game.stopMove();
+      else this.game.setMove(dx / JOYSTICK.maxTravel, dy / JOYSTICK.maxTravel);
     });
-    const release = (): void => this.game.clearAim();
+
+    const release = (ev: PointerEvent): void => {
+      if (this.stickPointer !== ev.pointerId) return;
+      this.stickPointer = null;
+      this.stick.active = false;
+      this.game.stopMove();
+    };
     this.canvas.addEventListener('pointerup', release);
     this.canvas.addEventListener('pointercancel', release);
+
+    // Desktop testing. Harmless on device, and it makes `npm run dev` usable.
+    const keys = new Set<string>();
+    const applyKeys = (): void => {
+      const x = (keys.has('d') || keys.has('arrowright') ? 1 : 0) - (keys.has('a') || keys.has('arrowleft') ? 1 : 0);
+      const y = (keys.has('s') || keys.has('arrowdown') ? 1 : 0) - (keys.has('w') || keys.has('arrowup') ? 1 : 0);
+      if (x === 0 && y === 0) this.game.stopMove();
+      else this.game.setMove(x, y);
+    };
+    window.addEventListener('keydown', (ev) => {
+      if (!this.active) return;
+      keys.add(ev.key.toLowerCase());
+      applyKeys();
+    });
+    window.addEventListener('keyup', (ev) => {
+      keys.delete(ev.key.toLowerCase());
+      applyKeys();
+    });
   }
 
   // -------------------------------------------------------------------- loop
@@ -213,7 +263,7 @@ export class Battle {
     }
     if (steps === MAX_STEPS) this.accumulator = 0;
 
-    this.renderer.render(this.game, now);
+    this.renderer.render(this.game, now, this.stick);
     this.updateHud();
   };
 

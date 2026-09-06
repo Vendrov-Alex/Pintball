@@ -28,14 +28,33 @@ export const PLAYER = {
   bulletLife: 2.5,
   /** Seconds of invulnerability after taking a hit (prevents multi-hit spikes). */
   iframes: 0.22,
+  /** Top movement speed in vu/s. Compare with ENEMY_BASE.speed and the kind multipliers. */
+  moveSpeed: 152,
   /**
-   * Touch-aim: dragging a finger biases target selection toward that direction.
-   * Set to false for the pure "fully automatic turret" reading of the design.
+   * How fast the square reaches its target velocity, in 1/s. High enough to feel
+   * instant, low enough that a flick of the thumb does not read as a teleport.
    */
-  touchAim: true,
-  /** How strongly the finger direction outweighs proximity when picking a target. */
-  touchAimWeight: 0.55,
+  moveResponse: 16,
 } as const;
+
+/** Floating virtual joystick, in css pixels. */
+export const JOYSTICK = {
+  baseRadius: 78,
+  knobRadius: 32,
+  /** Thumb travel that maps to full speed. */
+  maxTravel: 62,
+  /** Movement below this is treated as a tap, not a drag. */
+  deadZone: 7,
+} as const;
+
+/**
+ * Share of bots spawned in the hemisphere the player is running toward.
+ * Without this, outrunning the wave forever is strictly the best strategy.
+ */
+export const SPAWN_LEAD_BIAS = 0.58;
+
+/** Bots this far behind the player (as a multiple of the spawn radius) are recycled. */
+export const DESPAWN_FACTOR = 2.1;
 
 /** In-run level-up upgrades. Each pick multiplies the stat by (1 + step). */
 export const RUN_UPGRADES = {
@@ -60,7 +79,7 @@ export const MAX_LEVEL = XP_TABLE.length + 1; // 15
 /** Baseline stats of a regular bot at t = 0. */
 export const ENEMY_BASE = {
   hp: 13,
-  speed: 80,
+  speed: 112,
   radius: 11,
   /** Damage dealt to the player on contact. */
   damage: 8,
@@ -76,7 +95,7 @@ export const ENEMY_BASE = {
 /** How the baseline scales from t = 0 to t = RUN_DURATION (linear interpolation). */
 export const ENEMY_SCALING = {
   hpAtEnd: 4.2,
-  speedAtEnd: 1.5,
+  speedAtEnd: 1.38,
   damageAtEnd: 1.5,
   goldAtEnd: 2.5,
 } as const;
@@ -97,7 +116,7 @@ export interface EnemyKind {
 
 export const ENEMY_KINDS: Record<EnemyKindId, EnemyKind> = {
   grunt: { id: 'grunt', hp: 1, speed: 1, radius: 1, damage: 1, gold: 1, color: '#ff5d5d', cluster: 1 },
-  runner: { id: 'runner', hp: 0.6, speed: 1.75, radius: 0.85, damage: 0.8, gold: 1.4, color: '#ffb03a', cluster: 1 },
+  runner: { id: 'runner', hp: 0.6, speed: 1.35, radius: 0.85, damage: 0.8, gold: 1.4, color: '#ffb03a', cluster: 1 },
   tank: { id: 'tank', hp: 3.2, speed: 0.62, radius: 1.7, damage: 1.8, gold: 3.2, color: '#a066ff', cluster: 1 },
   swarm: { id: 'swarm', hp: 0.45, speed: 1.25, radius: 0.72, damage: 0.6, gold: 0.8, color: '#4ce6b0', cluster: 5 },
 };
@@ -149,10 +168,19 @@ export const BOSS = {
    * fight. This extra factor is what makes the finale last. Set it to 1 for the
    * literal reading of the brief.
    */
-  extraHpFactor: 6,
+  extraHpFactor: 8,
   /** Bots keep trickling in during the boss fight, at this share of wave 9. */
   addSpawnRatio: 0.3,
   hitCooldown: 0.6,
+  /**
+   * Enrage. A boss that is permanently slower than the player can be kited
+   * forever, which turns the finale into a war of attrition with no ending. After
+   * a grace period it accelerates until it is unambiguously faster than you, so
+   * the fight always resolves one way or the other.
+   */
+  enrageAfter: 30,
+  enrageRatePerSecond: 0.022,
+  enrageMaxSpeedMultiplier: 2.4,
   color: '#ff2f6d',
 } as const;
 

@@ -1,8 +1,9 @@
 # Pintball Survivor
 
-A three-minute wave-survival game for iOS and Android. You are a square. Bots come
-for you from every direction. Your gun fires by itself at anything inside your
-firing circle. Survive the clock, then kill what arrives at the end of it.
+A three-minute wave-survival game for iOS and Android, in the Survivor.io mould.
+You are a square. You move with a floating thumbstick across an open, unbounded
+map while a horde chases you down. Your gun fires by itself at anything inside
+your firing circle. Survive the clock, then kill what arrives at the end of it.
 
 Built as a web game in TypeScript + Canvas 2D, wrapped for both stores with
 Capacitor. The whole thing is ~50 KB of JavaScript (18 KB gzipped) with no art or
@@ -32,8 +33,17 @@ Swipe left/right, or tap the dots at the bottom.
 ## How a run works
 
 - **3:00 on the clock**, split into nine 20-second waves that get denser and meaner.
-- Your square sits at the centre. A dashed circle marks the firing boundary — the
-  gun only shoots inside it, and bullets die at its edge.
+- **You move.** Touch anywhere and a floating joystick appears under your thumb;
+  drag past its edge and the base follows, so a long swipe never runs out of
+  stick. WASD and the arrow keys work for desktop testing. The map is unbounded
+  and the camera is locked to you — the scrolling grid is the only thing that
+  tells you the square is moving rather than the world.
+- The gun aims itself at the nearest bot. A dashed circle marks its boundary; the
+  gun only shoots inside it, and bullets carry a travel budget equal to the radius
+  so running away never deletes your own shots.
+- **Outrunning the wave is not a strategy.** Most bots spawn in the hemisphere you
+  are heading toward, runners are faster than you late in a run, and bots you have
+  genuinely left behind are recycled to spawn where you actually are.
 - **HP bar** drains every time a bot touches you. Bots bounce off after landing a
   hit, so they cannot park on top of you.
 - **XP bar** fills with every kill. 5 kills for level 2, 11 more for level 3, 16
@@ -41,13 +51,15 @@ Swipe left/right, or tap the dots at the bottom.
 - Every level-up: **heal 10% of max HP**, then **pick one of three** upgrades —
   attack speed, damage or firing radius, each **+25%**, each up to **5 times**.
 - At 3:00 the **boss** arrives: x10 HP, contact damage and gold of a regular bot.
-  Kill it to win.
+  An arrow pins it to the screen edge whenever it is off camera. It starts slower
+  than you and **enrages** after thirty seconds, accelerating until it is
+  unambiguously faster — a boss you can kite forever is not a fight, it is a
+  stalemate. Kill it to win.
 - Win or lose, you keep **all the gold** from every bot you killed. Spend it on the
   Upgrade screen; those upgrades carry into every future run.
 
-Holding a finger on the screen biases targeting toward that direction — the turret
-still cannot shoot outside its circle, but you choose what dies first. Turn it off
-with `PLAYER.touchAim` in `src/game/config.ts`.
+Movement, joystick feel and spawn pressure are `PLAYER.moveSpeed`, `JOYSTICK` and
+`SPAWN_LEAD_BIAS` in `src/game/config.ts`.
 
 ## Where the numbers live
 
@@ -78,11 +90,18 @@ gold for each, and fails if the app logged any console error.
 ```
 runs per row: 6
 meta        win%   time   kills  lvl   gold  onscreen
-fresh        0%    78.6  188.8   7.8  339.8    29.0
-third        0%   159.4  624.3  14.8  1318.0    52.5
-two-third   50%   186.9  880.5  15.0  2168.8    16.0
-maxed       83%   185.5  878.5  15.0  2296.0    14.8
+fresh        0%   107.5  145.5   7.5  242.0   166.0
+third       17%   186.2  734.7  15.0  1555.0   137.5
+two-third  100%   193.8  877.2  15.0  2197.2    30.2
+maxed      100%   191.5  888.5  15.0  2241.5    19.3
 ```
+
+The pilot in the harness is a competent kiter: it flees the local crowd weighted
+by inverse square distance, with a tangential component so it strafes around
+pressure instead of sprinting into the bots spawning ahead of it. Measuring
+balance against a stationary dummy would be meaningless now that movement is the
+core of the game — the first version of the pilot survived 181 seconds with 137
+kills, which is what exposed that kiting needed a counter at all.
 
 That shape is the design target: a new player never sees the boss, a partly
 upgraded player reaches it and loses, and an invested player wins. `npm run
@@ -91,6 +110,8 @@ qa:shots` additionally screenshots every screen into `screenshots/`.
 ## Building for the stores
 
 ```bash
+npm run build:web                         # one self-contained .html you can host
+npm run qa:web                            # boot that file and smoke-test it
 npm run assets:icon                       # regenerate icons + splash from code
 npx @capacitor/assets generate            # fan them out to native resolutions
 npx cap add ios && npx cap add android    # once
@@ -118,12 +139,14 @@ src/
   ui/                  swipe pager, three screens, battle HUD and modals
 scripts/
   simulate.mjs         headless QA + balance harness
+  build-artifact.mjs   collapses the build into one hostable HTML file
+  check-web-build.mjs  smoke test for that file, under a hostile host
   generate-icons.mjs   dependency-free PNG generator for icons and splashes
 ```
 
 Performance notes, because this has to hold 60 fps on a mid-range Android with 300
 bots on screen: entities are pre-allocated in fixed pools and never garbage
-collected mid-run, near-neighbour queries go through a uniform spatial hash rather
-than an O(n²) scan, the device pixel ratio is capped at 2, canvas shadow blur is
+collected mid-run, near-neighbour queries go through a uniform spatial hash keyed
+by a multiplicative hash so the world can be unbounded, rather than an O(n²) scan, the device pixel ratio is capped at 2, canvas shadow blur is
 restricted to a handful of large static elements, and the HUD only touches the DOM
 when a displayed value actually changes.

@@ -16,7 +16,23 @@ import { UpgradesScreen } from './ui/screens/upgrades';
 
 import './styles.css';
 
+/**
+ * The single-file build is embedded in a page whose <head> belongs to the host,
+ * so it cannot ship its own viewport meta. Without one a mobile browser lays the
+ * page out at 980px and scales it down, which leaves every touch coordinate
+ * offset from what is drawn. Inserting it at runtime makes the bundle portable to
+ * any host; where the host already declares one, this is a no-op.
+ */
+function ensureViewportMeta(): void {
+  if (document.querySelector('meta[name="viewport"]')) return;
+  const meta = document.createElement('meta');
+  meta.name = 'viewport';
+  meta.content = 'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover';
+  document.head.appendChild(meta);
+}
+
 async function boot(): Promise<void> {
+  ensureViewportMeta();
   const profile = await initProfile();
   setAudioEnabled(profile.settings.sound);
   haptics.setHapticsEnabled(profile.settings.haptics);
