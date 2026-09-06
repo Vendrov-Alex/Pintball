@@ -7,9 +7,10 @@ import {
   ENEMY_SCALING,
   LEVEL_UP_HEAL,
   MAX_LEVEL,
+  PICKUP,
   PLAYER,
   RUN_DURATION,
-  RUN_UPGRADES,
+  RUN_UPGRADE_LINES,
   SPAWN_LEAD_BIAS,
   VIEW_SHORT_SIDE,
   WAVES,
@@ -20,15 +21,13 @@ import {
 } from './config';
 import { SpatialGrid } from './grid';
 import { Pool } from './pool';
-import type { Bullet, Enemy, FloatText, Particle, RunResult, Vec, ViewInfo } from './types';
+import type { Bullet, Enemy, FloatText, Particle, Pickup, RunResult, Vec, ViewInfo } from './types';
 import {
-  BOUNTY_GOLD,
-  REPAIR_SHARE,
   emptyPicks,
   pickMultiplier,
   rollChoices,
-  type ChoiceId,
   type RunPicks,
+  type RunUpgradeId,
   type UpgradeChoice,
 } from './upgrades';
 
@@ -36,6 +35,8 @@ const MAX_ENEMIES = 340;
 const MAX_BULLETS = 160;
 const MAX_PARTICLES = 420;
 const MAX_FLOATS = 40;
+/** Two orbs per kill at up to ten kills a second, times an 18 second lifetime. */
+const MAX_PICKUPS = 640;
 
 export type Phase = 'idle' | 'running' | 'levelup' | 'ended';
 
@@ -48,10 +49,17 @@ export interface EngineHooks {
   onShoot(): void;
 }
 
-export interface PlayerStats {
+/** Multiplier per upgrade line; also the shape the meta screen hands to start(). */
+export type PlayerStats = Record<RunUpgradeId, number>;
+
+/** Absolute, ready-to-use values derived from base x meta x in-run picks. */
+export interface DerivedStats {
   damage: number;
   fireRate: number;
   range: number;
+  magnet: number;
+  maxHp: number;
+  moveSpeed: number;
 }
 
 const lerp = (a: number, b: number, t: number): number => a + (b - a) * t;
@@ -76,7 +84,8 @@ export class Game {
   hp: number = PLAYER.maxHp;
   maxHp: number = PLAYER.maxHp;
   level = 1;
-  killsThisLevel = 0;
+  /** XP collected toward the next level. */
+  xpThisLevel = 0;
   kills = 0;
   gold = 0;
   bossActive = false;
@@ -89,11 +98,18 @@ export class Game {
   rangePulse = 0;
 
   picks: RunPicks = emptyPicks();
-  stats: PlayerStats = { damage: PLAYER.damage, fireRate: PLAYER.fireRate, range: PLAYER.range };
+  stats: DerivedStats = {
+    damage: PLAYER.damage,
+    fireRate: PLAYER.fireRate,
+    range: PLAYER.range,
+    magnet: PLAYER.magnetRadius,
+    maxHp: PLAYER.maxHp,
+    moveSpeed: PLAYER.moveSpeed,
+  };
 
   readonly enemies = new Pool<Enemy>(MAX_ENEMIES, () => ({
     active: false, x: 0, y: 0, kx: 0, ky: 0, hp: 1, maxHp: 1, radius: 10,
-    speed: 50, damage: 1, gold: 1, kind: 'grunt', color: '#fff', hitTimer: 0, flash: 0, isBoss: false,
+    speed: 50, damage: 1, gold: 1, xp: 1, kind: 'grunt', color: '#fff', hitTimer: 0, flash: 0, isBoss: false,
   }));
   readonly bullets = new Pool<Bullet>(MAX_BULLETS, () => ({
     active: false, x: 0, y: 0, vx: 0, vy: 0, life: 0, travel: 0, damage: 1,
@@ -104,12 +120,17 @@ export class Game {
   readonly floats = new Pool<FloatText>(MAX_FLOATS, () => ({
     active: false, x: 0, y: 0, life: 0, text: '', color: '#fff',
   }));
+  readonly pickups = new Pool<Pickup>(MAX_PICKUPS, () => ({
+    active: false, x: 0, y: 0, vx: 0, vy: 0, life: 0, kind: 'gold', value: 1,
+  }));
 
   boss: Enemy | null = null;
 
   private readonly grid = new SpatialGrid(44);
   private readonly hooks: EngineHooks;
-  private metaMultipliers: PlayerStats = { damage: 1, fireRate: 1, range: 1 };
+  private metaMultipliers: PlayerStats = {
+    damage: 1, fireRate: 1, range: 1, magnet: 1, maxHp: 1, moveSpeed: 1,
+  };
 
   private fireCooldown = 0;
   private spawnCarry = 0;
@@ -145,18 +166,19 @@ export class Game {
   /** `meta` carries the permanent, gold-bought multipliers. */
   start(meta: PlayerStats): void {
     this.metaMultipliers = meta;
-    this.maxHp = PLAYER.maxHp;
+    this.picks = emptyPicks();
+    this.refreshStats();
+    this.maxHp = this.stats.maxHp;
     this.hp = this.maxHp;
     this.elapsed = 0;
     this.level = 1;
     this.kills = 0;
-    this.killsThisLevel = 0;
+    this.xpThisLevel = 0;
     this.gold = 0;
     this.bossActive = false;
     this.bossKilled = false;
     this.bossTimer = 0;
     this.boss = null;
-    this.picks = emptyPicks();
     this.fireCooldown = 0;
     this.spawnCarry = 0;
     this.invuln = 0;
@@ -174,8 +196,8 @@ export class Game {
     this.bullets.clear();
     this.particles.clear();
     this.floats.clear();
+    this.pickups.clear();
     this.grid.clear();
-    this.refreshStats();
     this.phase = 'running';
     this.prewarm();
   }
@@ -185,10 +207,15 @@ export class Game {
   }
 
   private refreshStats(): void {
+    const of = (id: RunUpgradeId, base: number): number =>
+      base * this.metaMultipliers[id] * pickMultiplier(id, this.picks[id]);
     this.stats = {
-      damage: PLAYER.damage * this.metaMultipliers.damage * pickMultiplier(this.picks.damage),
-      fireRate: PLAYER.fireRate * this.metaMultipliers.fireRate * pickMultiplier(this.picks.fireRate),
-      range: PLAYER.range * this.metaMultipliers.range * pickMultiplier(this.picks.range),
+      damage: of('damage', PLAYER.damage),
+      fireRate: of('fireRate', PLAYER.fireRate),
+      range: of('range', PLAYER.range),
+      magnet: of('magnet', PLAYER.magnetRadius),
+      maxHp: of('maxHp', PLAYER.maxHp),
+      moveSpeed: of('moveSpeed', PLAYER.moveSpeed),
     };
   }
 
@@ -216,55 +243,51 @@ export class Game {
 
   // ------------------------------------------------------------- progression
 
-  /** Kills still needed for the next level, or null at the cap. */
-  killsForNextLevel(): number | null {
+  /** XP still needed for the next level, or null at the cap. */
+  xpForNextLevel(): number | null {
     if (this.level >= MAX_LEVEL) return null;
     return XP_TABLE[this.level - 1];
   }
 
   xpProgress(): number {
-    const need = this.killsForNextLevel();
-    return need === null ? 1 : clamp(this.killsThisLevel / need, 0, 1);
+    const need = this.xpForNextLevel();
+    return need === null ? 1 : clamp(this.xpThisLevel / need, 0, 1);
   }
 
-  applyChoice(id: ChoiceId): void {
-    switch (id) {
-      case 'fireRate':
-      case 'damage':
-      case 'range':
-        this.picks[id] = Math.min(RUN_UPGRADES.maxPicks, this.picks[id] + 1);
-        this.refreshStats();
-        if (id === 'range') this.rangePulse = 1;
-        break;
-      case 'repair':
-        this.hp = Math.min(this.maxHp, this.hp + this.maxHp * REPAIR_SHARE);
-        break;
-      case 'bounty':
-        this.gold += BOUNTY_GOLD;
-        this.spawnFloat(this.player.x, this.player.y - PLAYER.halfSize * 3, `+${BOUNTY_GOLD}`, '#ffd23a');
-        break;
+  applyChoice(id: RunUpgradeId): void {
+    const before = this.stats.maxHp;
+    this.picks[id] = Math.min(RUN_UPGRADE_LINES[id].maxPicks, this.picks[id] + 1);
+    this.refreshStats();
+
+    if (id === 'maxHp') {
+      // A bigger bar you have to refill is a downgrade in the moment, so the
+      // added health is granted outright.
+      this.maxHp = this.stats.maxHp;
+      this.hp += this.maxHp - before;
     }
+    if (id === 'range' || id === 'magnet') this.rangePulse = 1;
+
     this.phase = 'running';
   }
 
-  private gainKillXp(amount: number): void {
+  private gainXp(amount: number): void {
     if (this.level >= MAX_LEVEL) return;
-    this.killsThisLevel += amount;
-    let need = this.killsForNextLevel();
-    while (need !== null && this.killsThisLevel >= need) {
-      this.killsThisLevel -= need;
+    this.xpThisLevel += amount;
+    let need = this.xpForNextLevel();
+    while (need !== null && this.xpThisLevel >= need) {
+      this.xpThisLevel -= need;
       this.level += 1;
       this.hp = Math.min(this.maxHp, this.hp + this.maxHp * LEVEL_UP_HEAL);
       if (this.level >= MAX_LEVEL) {
-        this.killsThisLevel = 0;
+        this.xpThisLevel = 0;
         need = null;
       } else {
-        need = this.killsForNextLevel();
+        need = this.xpForNextLevel();
       }
       this.phase = 'levelup';
       this.hooks.onLevelUp(rollChoices(this.picks, Math.random), this.level);
-      // Only one level-up card is presented per frame; any surplus kills stay
-      // banked in killsThisLevel and roll into the next card.
+      // Only one level-up card is presented per frame; any surplus XP stays
+      // banked in xpThisLevel and rolls into the next card.
       break;
     }
   }
@@ -288,6 +311,7 @@ export class Game {
     this.updateEnemies(dt);
     this.updateWeapon(dt);
     this.updateBullets(dt);
+    this.updatePickups(dt);
     this.updateParticles(dt);
     this.updateFloats(dt);
 
@@ -295,8 +319,8 @@ export class Game {
   }
 
   private updatePlayer(dt: number): void {
-    const targetVx = this.moveX * PLAYER.moveSpeed;
-    const targetVy = this.moveY * PLAYER.moveSpeed;
+    const targetVx = this.moveX * this.stats.moveSpeed;
+    const targetVy = this.moveY * this.stats.moveSpeed;
     // Framerate-independent approach to the target velocity.
     const t = 1 - Math.exp(-PLAYER.moveResponse * dt);
     this.velocity.x = lerp(this.velocity.x, targetVx, t);
@@ -376,6 +400,7 @@ export class Game {
     const speedMul = lerp(1, ENEMY_SCALING.speedAtEnd, t);
     const dmgMul = lerp(1, ENEMY_SCALING.damageAtEnd, t);
     const goldMul = lerp(1, ENEMY_SCALING.goldAtEnd, t);
+    const xpMul = lerp(1, ENEMY_SCALING.xpAtEnd, t);
 
     e.x = x;
     e.y = y;
@@ -387,6 +412,7 @@ export class Game {
     e.speed = ENEMY_BASE.speed * kind.speed * speedMul;
     e.damage = ENEMY_BASE.damage * kind.damage * dmgMul;
     e.gold = ENEMY_BASE.gold * kind.gold * goldMul;
+    e.xp = kind.xp * xpMul;
     e.kind = kind.id;
     e.color = kind.color;
     e.hitTimer = 0;
@@ -408,6 +434,7 @@ export class Game {
     e.speed = ENEMY_BASE.speed * BOSS.speedMultiplier;
     e.damage = ENEMY_BASE.damage * BOSS.damageMultiplier;
     e.gold = ENEMY_BASE.gold * ENEMY_SCALING.goldAtEnd * BOSS.goldMultiplier;
+    e.xp = 10;
     e.kind = 'boss';
     e.color = BOSS.color;
     e.hitTimer = 0;
@@ -622,7 +649,6 @@ export class Game {
 
     e.active = false;
     this.kills += 1;
-    this.gold += e.gold;
     this.burst(e.x, e.y, e.isBoss ? 46 : 9, e.color, e.isBoss ? 320 : 170);
     this.hooks.onKill();
 
@@ -630,14 +656,90 @@ export class Game {
       this.boss = null;
       this.bossActive = false;
       this.bossKilled = true;
-      this.gold += BOSS_KILL_BONUS;
-      this.gainKillXp(10);
+      // Killing the boss ends the run on the spot, so its reward is credited
+      // directly — orbs nobody can walk over are not a reward.
+      this.gold += e.gold + BOSS_KILL_BONUS;
+      this.gainXp(e.xp);
       this.spawnFloat(this.player.x, this.player.y - PLAYER.halfSize * 4, `+${BOSS_KILL_BONUS}`, '#ffd23a');
       this.end(true);
       return;
     }
 
-    this.gainKillXp(1);
+    this.dropLoot(e);
+  }
+
+  // ----------------------------------------------------------------- pickups
+
+  /**
+   * Every bot leaves a gold orb and an XP orb where it fell. Nothing is credited
+   * until the player walks over them, which is what gives movement a reason to go
+   * toward the fight instead of only away from it.
+   */
+  private dropLoot(e: Enemy): void {
+    this.dropOrb(e.x, e.y, 'gold', e.gold);
+    this.dropOrb(e.x, e.y, 'xp', e.xp);
+  }
+
+  private dropOrb(x: number, y: number, kind: Pickup['kind'], value: number): void {
+    const p = this.pickups.obtain();
+    if (!p) {
+      // The field is saturated. Credit it rather than delete it: being swarmed is
+      // already the punishment, silently voiding the reward on top of that is not.
+      if (kind === 'gold') this.gold += value;
+      else this.gainXp(value);
+      return;
+    }
+    const a = Math.random() * Math.PI * 2;
+    const s = PICKUP.scatter * (0.35 + Math.random() * 0.65);
+    p.x = x;
+    p.y = y;
+    p.vx = Math.cos(a) * s;
+    p.vy = Math.sin(a) * s;
+    p.life = PICKUP.life;
+    p.kind = kind;
+    p.value = value;
+  }
+
+  private updatePickups(dt: number): void {
+    const magnet = this.stats.magnet;
+    const collect = PLAYER.halfSize + PICKUP.collectPad;
+    const collectSq = collect * collect;
+    const drag = Math.pow(PICKUP.drag, dt);
+
+    for (const p of this.pickups.items) {
+      if (!p.active) continue;
+      p.life -= dt;
+      if (p.life <= 0) {
+        p.active = false;
+        continue;
+      }
+
+      const dx = this.player.x - p.x;
+      const dy = this.player.y - p.y;
+      const d2 = dx * dx + dy * dy;
+
+      if (d2 < magnet * magnet) {
+        // Accelerate on approach. A constant pull reads as a slow drift and makes
+        // the magnet feel broken even when the radius is right.
+        const d = Math.sqrt(d2) || 1;
+        const t = 1 - d / magnet;
+        const speed = PICKUP.pullMin + (PICKUP.pullMax - PICKUP.pullMin) * t * t;
+        p.vx = (dx / d) * speed;
+        p.vy = (dy / d) * speed;
+      } else {
+        p.vx *= drag;
+        p.vy *= drag;
+      }
+
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+
+      if (d2 < collectSq) {
+        p.active = false;
+        if (p.kind === 'gold') this.gold += p.value;
+        else this.gainXp(p.value);
+      }
+    }
   }
 
   // ---------------------------------------------------------------- fx + end

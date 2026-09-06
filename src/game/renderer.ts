@@ -1,4 +1,4 @@
-import { JOYSTICK, PLAYER } from './config';
+import { JOYSTICK, PICKUP, PLAYER } from './config';
 import type { Game } from './engine';
 
 /** Screen-space joystick state handed in by the battle UI, in css pixels. */
@@ -90,8 +90,10 @@ export class Renderer {
     ctx.scale(scale, scale);
     ctx.translate(-camX, -camY);
 
+    this.drawMagnetRing(ctx, game);
     this.drawRangeCircle(ctx, game, time);
     this.drawParticles(ctx, game);
+    this.drawPickups(ctx, game, time);
     this.drawEnemies(ctx, game);
     this.drawBullets(ctx, game);
     this.drawPlayer(ctx, game, time);
@@ -123,6 +125,56 @@ export class Renderer {
     ctx.translate(ox, oy);
     ctx.fillStyle = pattern;
     ctx.fillRect(0, 0, this.cssW + GRID_TILE * 2, this.cssH + GRID_TILE * 2);
+    ctx.restore();
+  }
+
+  /**
+   * The magnet radius, drawn much fainter than the firing circle. Two rings of
+   * equal weight would read as one confusing double boundary; this one only needs
+   * to answer "did that upgrade do anything".
+   */
+  private drawMagnetRing(ctx: CanvasRenderingContext2D, game: Game): void {
+    const r = game.stats.magnet;
+    ctx.save();
+    ctx.translate(game.player.x, game.player.y);
+    ctx.strokeStyle = 'rgba(192, 123, 255, 0.22)';
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([3, 9]);
+    ctx.beginPath();
+    ctx.arc(0, 0, r, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  /** Gold orbs are discs, XP orbs are diamonds — shape reads faster than hue. */
+  private drawPickups(ctx: CanvasRenderingContext2D, game: Game, time: number): void {
+    const r = PICKUP.radius;
+    const pulse = 0.85 + Math.sin(time * 0.006) * 0.15;
+
+    ctx.save();
+    ctx.fillStyle = PICKUP.goldColor;
+    for (const p of game.pickups.items) {
+      if (!p.active || p.kind !== 'gold') continue;
+      // Blink out over the last two seconds so nothing vanishes without warning.
+      ctx.globalAlpha = p.life < 2 ? 0.35 + Math.abs(Math.sin(p.life * 9)) * 0.65 : 1;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, r * pulse, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    ctx.fillStyle = PICKUP.xpColor;
+    for (const p of game.pickups.items) {
+      if (!p.active || p.kind !== 'xp') continue;
+      ctx.globalAlpha = p.life < 2 ? 0.35 + Math.abs(Math.sin(p.life * 9)) * 0.65 : 1;
+      const d = r * pulse;
+      ctx.beginPath();
+      ctx.moveTo(p.x, p.y - d);
+      ctx.lineTo(p.x + d, p.y);
+      ctx.lineTo(p.x, p.y + d);
+      ctx.lineTo(p.x - d, p.y);
+      ctx.closePath();
+      ctx.fill();
+    }
     ctx.restore();
   }
 

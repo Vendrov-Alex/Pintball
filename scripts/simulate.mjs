@@ -22,8 +22,10 @@ const SHOTS = args.includes('--shots');
 const SWEEP = args.includes('--sweep');
 const SHOT_DIR = flag('shot-dir', 'screenshots');
 const PORT = Number(flag('port', 5199));
-/** Permanent upgrade levels to simulate: damage,fireRate,range */
-const META = String(flag('meta', '0,0,0')).split(',').map(Number);
+/** Permanent upgrade levels: damage,fireRate,range,maxHp,magnet,moveSpeed */
+const META = String(flag('meta', '0,0,0,0,0,0')).split(',').map(Number);
+/** Must mirror META_UPGRADES steps in src/game/config.ts. */
+const META_STEPS = { damage: 0.06, fireRate: 0.05, range: 0.04, maxHp: 0.05, magnet: 0.05, moveSpeed: 0.02 };
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -55,7 +57,7 @@ async function startServer() {
 
 const simulateRun = async (page, meta) =>
   page.evaluate(
-    ({ meta }) => {
+    ({ meta, metaSteps }) => {
       const battle = window.__battle;
       const game = window.__game;
       if (!battle || !game) throw new Error('debug handles missing');
@@ -63,11 +65,11 @@ const simulateRun = async (page, meta) =>
       // Take the render loop out of the picture and step the simulation by hand.
       battle.active = false;
 
-      const metaMul = {
-        damage: 1 + meta[0] * 0.06,
-        fireRate: 1 + meta[1] * 0.05,
-        range: 1 + meta[2] * 0.04,
-      };
+      const ids = ['damage', 'fireRate', 'range', 'maxHp', 'magnet', 'moveSpeed'];
+      const metaMul = {};
+      ids.forEach((id, i) => {
+        metaMul[id] = 1 + (meta[i] || 0) * metaSteps[id];
+      });
       game.start(metaMul);
 
       const dt = 1 / 60;
@@ -87,32 +89,59 @@ const simulateRun = async (page, meta) =>
        * that movement is the core of the game.
        */
       const steer = () => {
-        let ax = 0;
-        let ay = 0;
         const px = game.player.x;
         const py = game.player.y;
+
+        let ax = 0;
+        let ay = 0;
+        let near = 0;
         for (const e of game.enemies.items) {
           if (!e.active) continue;
           const dx = px - e.x;
           const dy = py - e.y;
           const d2 = dx * dx + dy * dy;
           if (d2 > 340 * 340 || d2 < 1) continue;
+          if (d2 < 190 * 190) near += 1;
           const w = (e.isBoss ? 6 : 1) / d2;
           ax += dx * w;
           ay += dy * w;
         }
-        const len = Math.hypot(ax, ay);
-        if (len > 1e-6) {
-          ax /= len;
-          ay /= len;
-          // 40% tangential: strafe around the pressure instead of fleeing straight.
-          const tx = -ay * 0.4;
-          const ty = ax * 0.4;
-          hx = ax + tx;
-          hy = ay + ty;
-          const hl = Math.hypot(hx, hy) || 1;
-          hx /= hl;
-          hy /= hl;
+
+        // Loot pull. Nothing is banked until it is walked over, so a pilot that
+        // only flees would measure an economy no real player experiences.
+        let lx = 0;
+        let ly = 0;
+        for (const p of game.pickups.items) {
+          if (!p.active) continue;
+          const dx = p.x - px;
+          const dy = p.y - py;
+          const d = Math.hypot(dx, dy);
+          if (d > 460 || d < 1) continue;
+          lx += dx / d;
+          ly += dy / d;
+        }
+
+        const al = Math.hypot(ax, ay);
+        const ll = Math.hypot(lx, ly);
+        if (al > 1e-6) {
+          ax /= al;
+          ay /= al;
+        }
+        if (ll > 1e-6) {
+          lx /= ll;
+          ly /= ll;
+        }
+
+        // Crowded: get out. Clear: go collect. 40% tangential either way, so the
+        // pilot strafes around pressure instead of sprinting into the bots that
+        // spawn ahead of it.
+        const lootWeight = near >= 9 ? 0.35 : 0.95;
+        let dx = ax + lx * lootWeight - ay * 0.4;
+        let dy = ay + ly * lootWeight + ax * 0.4;
+        const dl = Math.hypot(dx, dy);
+        if (dl > 1e-6) {
+          hx = dx / dl;
+          hy = dy / dl;
         }
         game.setMove(hx, hy);
       };
@@ -120,11 +149,14 @@ const simulateRun = async (page, meta) =>
       while (game.phase !== 'ended' && steps < maxSteps) {
         if (game.phase === 'levelup') {
           // Balanced player: always top up whichever line is furthest behind.
-          const order = ['fireRate', 'damage', 'range'];
-          const open = order.filter((id) => game.picks[id] < 5);
-          const next = open.length
-            ? open.reduce((a, b) => (game.picks[a] <= game.picks[b] ? a : b))
-            : 'repair';
+          // Read the three cards the real UI just rendered, so the pilot is
+          // constrained to the same random offer a player would see.
+          const offered = [...document.querySelectorAll('.modal--levelup .choice')].map(
+            (el) => el.dataset.id,
+          );
+          const next = offered.length
+            ? offered.reduce((a, b) => (game.picks[a] <= game.picks[b] ? a : b))
+            : 'damage';
           picked.push(next);
           game.applyChoice(next);
           continue;
@@ -144,11 +176,11 @@ const simulateRun = async (page, meta) =>
         hp: Math.round(game.hp),
         picks: { ...game.picks },
         pickOrder: picked.length,
-        travelled: Math.round(Math.hypot(game.player.x, game.player.y)),
+        orbs: game.pickups.countActive(),
         liveEnemies: game.enemies.countActive(),
       };
     },
-    { meta },
+    { meta, metaSteps: META_STEPS },
   );
 
 async function main() {
@@ -220,15 +252,15 @@ async function main() {
   // fully maxed set of permanent upgrades.
   const ladder = SWEEP
     ? [
-        ['fresh   ', [0, 0, 0]],
-        ['third   ', [10, 8, 7]],
-        ['two-third', [20, 16, 13]],
-        ['maxed   ', [30, 25, 20]],
+        ['fresh    ', [0, 0, 0, 0, 0, 0]],
+        ['third    ', [10, 8, 7, 8, 7, 4]],
+        ['two-third', [20, 16, 13, 16, 13, 8]],
+        ['maxed    ', [30, 25, 20, 25, 20, 12]],
       ]
-    : [['custom  ', META]];
+    : [['custom   ', META]];
 
   console.log(`\nruns per row: ${RUNS}`);
-  console.log('meta        win%   time   kills  lvl   gold  onscreen');
+  console.log('meta         win%   time   kills  lvl   gold  onscreen  orbs');
   for (const [label, meta] of ladder) {
     const results = [];
     for (let i = 0; i < RUNS; i++) results.push(await simulateRun(page, meta));
@@ -237,7 +269,8 @@ async function main() {
     console.log(
       `${label}  ${winPct.padStart(4)}%  ${avg((r) => r.seconds).padStart(6)}  ` +
         `${avg((r) => r.kills).padStart(5)}  ${avg((r) => r.level).padStart(4)}  ` +
-        `${avg((r) => r.gold).padStart(5)}  ${avg((r) => r.liveEnemies).padStart(6)}`,
+        `${avg((r) => r.gold).padStart(5)}  ${avg((r) => r.liveEnemies).padStart(6)}  ` +
+        `${avg((r) => r.orbs).padStart(4)}`,
     );
     if (results.some((r) => !r.ended)) console.log(`  ! ${label}: a run hit the step ceiling without ending`);
   }

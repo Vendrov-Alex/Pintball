@@ -5,7 +5,7 @@ import { Game } from '../game/engine';
 import { Renderer, type JoystickView } from '../game/renderer';
 import type { RunResult } from '../game/types';
 import type { UpgradeChoice } from '../game/upgrades';
-import { metaMultiplier } from '../meta/metaUpgrades';
+import { allMetaMultipliers } from '../meta/metaUpgrades';
 import { addGold, getProfile, recordRun } from '../meta/profile';
 import { formatGold, formatTime, onTap, qs } from './dom';
 
@@ -41,7 +41,7 @@ export class Battle {
   private lastWave = -1;
   private stickPointer: number | null = null;
   private stick: JoystickView = { active: false, baseX: 0, baseY: 0, knobX: 0, knobY: 0 };
-  private hudCache = { hp: -1, xp: -1, level: -1, gold: -1, time: -1, wave: -1 };
+  private hudCache = { hp: -1, maxHp: -1, xp: -1, level: -1, gold: -1, time: -1, wave: -1 };
 
   constructor(private readonly onExit: (result: RunResult | null) => void) {
     this.root = document.createElement('div');
@@ -148,14 +148,10 @@ export class Battle {
     this.lastWave = -1;
     this.stickPointer = null;
     this.stick.active = false;
-    this.hudCache = { hp: -1, xp: -1, level: -1, gold: -1, time: -1, wave: -1 };
+    this.hudCache = { hp: -1, maxHp: -1, xp: -1, level: -1, gold: -1, time: -1, wave: -1 };
 
     this.layout();
-    this.game.start({
-      damage: metaMultiplier('damage'),
-      fireRate: metaMultiplier('fireRate'),
-      range: metaMultiplier('range'),
-    });
+    this.game.start(allMetaMultipliers());
 
     this.showBanner('Wave 1', 'banner--wave');
     this.lastFrame = performance.now();
@@ -274,8 +270,11 @@ export class Battle {
     const cache = this.hudCache;
 
     const hpRatio = Math.max(0, g.hp / g.maxHp);
-    if (Math.abs(hpRatio - cache.hp) > 0.001) {
+    // The bar's denominator changes when Reinforce is picked, so the label has to
+    // track max HP as well as the ratio.
+    if (Math.abs(hpRatio - cache.hp) > 0.001 || g.maxHp !== cache.maxHp) {
       cache.hp = hpRatio;
+      cache.maxHp = g.maxHp;
       this.hpFill.style.transform = `scaleX(${hpRatio})`;
       this.hpText.textContent = `${Math.ceil(g.hp)} / ${Math.round(g.maxHp)}`;
       this.hpFill.classList.toggle('is-critical', hpRatio < 0.34);
@@ -344,13 +343,10 @@ export class Battle {
 
     this.choiceHost.innerHTML = choices
       .map((c) => {
-        const pips =
-          c.maxPicks === null
-            ? ''
-            : `<div class="choice__pips">${Array.from(
-                { length: c.maxPicks },
-                (_, i) => `<i class="${i < (c.picks ?? 0) ? 'on' : ''}"></i>`,
-              ).join('')}</div>`;
+        const pips = `<div class="choice__pips">${Array.from(
+          { length: c.maxPicks },
+          (_, i) => `<i class="${i < c.picks ? 'on' : ''}"></i>`,
+        ).join('')}</div>`;
         return `
           <button class="choice" type="button" data-id="${c.id}" style="--accent:${c.accent}">
             <span class="choice__icon" aria-hidden="true">${c.icon}</span>

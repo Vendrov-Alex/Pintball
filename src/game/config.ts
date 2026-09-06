@@ -30,6 +30,8 @@ export const PLAYER = {
   iframes: 0.22,
   /** Top movement speed in vu/s. Compare with ENEMY_BASE.speed and the kind multipliers. */
   moveSpeed: 152,
+  /** Radius inside which dropped orbs are pulled toward the square, in vu. */
+  magnetRadius: 150,
   /**
    * How fast the square reaches its target velocity, in 1/s. High enough to feel
    * instant, low enough that a flick of the thumb does not read as a teleport.
@@ -56,19 +58,59 @@ export const SPAWN_LEAD_BIAS = 0.58;
 /** Bots this far behind the player (as a multiple of the spawn radius) are recycled. */
 export const DESPAWN_FACTOR = 2.1;
 
-/** In-run level-up upgrades. Each pick multiplies the stat by (1 + step). */
-export const RUN_UPGRADES = {
-  step: 0.25,
-  maxPicks: 5,
+/**
+ * In-run level-up lines. Each pick multiplies the stat by (1 + step), up to
+ * maxPicks. A line that has hit its cap stops being offered.
+ *
+ * Movement speed is the one line that does NOT use the standard +25%: five picks
+ * at +25% is 3.05x, which is 464 vu/s against a 209 vu/s runner. Nothing could
+ * ever reach you, and a game you cannot lose is a game with no reason to upgrade.
+ * At +10% a maxed movement build is fast enough to reposition at will and still
+ * has to respect the horde.
+ */
+export const RUN_UPGRADE_LINES = {
+  damage: { step: 0.25, maxPicks: 5 },
+  fireRate: { step: 0.25, maxPicks: 5 },
+  range: { step: 0.25, maxPicks: 5 },
+  magnet: { step: 0.25, maxPicks: 5 },
+  maxHp: { step: 0.25, maxPicks: 5 },
+  moveSpeed: { step: 0.1, maxPicks: 5 },
+} as const;
+
+/**
+ * Loot orbs. Every bot drops one gold orb and one XP orb where it died, so the
+ * reward for a kill is only banked if you go and take it — which is what stops
+ * running in circles from being a viable way to play.
+ */
+export const PICKUP = {
+  /** Seconds an uncollected orb stays on the field. */
+  life: 18,
+  radius: 7,
+  /** Speed an orb is pulled at when it is at the very edge of the magnet, in vu/s. */
+  pullMin: 130,
+  /** ...and when it is right on top of the player. */
+  pullMax: 660,
+  /** How fast the scatter from the death burst bleeds off, per second. */
+  drag: 0.02,
+  /** Scatter speed given to a fresh orb. */
+  scatter: 95,
+  /** Extra collection radius on top of the square's half-size. */
+  collectPad: 9,
+  goldColor: '#ffd23a',
+  xpColor: '#5ad1ff',
 } as const;
 
 /** Heal granted on every level-up, as a share of max HP. */
 export const LEVEL_UP_HEAL = 0.1;
 
 /**
- * Kills required to reach the NEXT level, indexed by (currentLevel - 1).
- * Level 1 -> 2 costs 5 kills, 2 -> 3 costs 11, 3 -> 4 costs 16, and so on up to
- * level 15 (the cap), for 538 kills across a full run.
+ * XP required to reach the NEXT level, indexed by (currentLevel - 1).
+ * Level 1 -> 2 costs 5 XP, 2 -> 3 costs 11, 3 -> 4 costs 16, and so on up to
+ * level 15 (the cap), for 538 XP across a full run.
+ *
+ * A regular bot drops one XP orb; the chunky ones drop more. XP only counts once
+ * the orb has been collected, so the curve is a measure of how much of the field
+ * you actually clear, not how much of it you shot.
  */
 export const XP_TABLE: readonly number[] = [
   5, 11, 16, 21, 26, 31, 36, 41, 46, 51, 56, 61, 66, 71,
@@ -83,7 +125,9 @@ export const ENEMY_BASE = {
   radius: 11,
   /** Damage dealt to the player on contact. */
   damage: 8,
-  gold: 1,
+  // Raised when loot became collectable: roughly half of what drops is never
+  // picked up, so the per-kill value has to cover the difference.
+  gold: 1.6,
   /** Impulse applied to the bot after it lands a hit, in vu/s. */
   knockback: 190,
   /** Minimum delay between two hits from the same bot, in seconds. */
@@ -98,6 +142,12 @@ export const ENEMY_SCALING = {
   speedAtEnd: 1.38,
   damageAtEnd: 1.5,
   goldAtEnd: 2.5,
+  /**
+   * Later bots carry richer XP orbs. Without this the level curve stalls in the
+   * middle of a run: the XP table keeps climbing while a kill is worth the same
+   * one point it was at second zero.
+   */
+  xpAtEnd: 2.2,
 } as const;
 
 export type EnemyKindId = 'grunt' | 'runner' | 'tank' | 'swarm';
@@ -109,16 +159,18 @@ export interface EnemyKind {
   radius: number;
   damage: number;
   gold: number;
+  /** XP carried by this kind's orb. */
+  xp: number;
   color: string;
   /** Bots of this kind spawn as a tight cluster of N. */
   cluster: number;
 }
 
 export const ENEMY_KINDS: Record<EnemyKindId, EnemyKind> = {
-  grunt: { id: 'grunt', hp: 1, speed: 1, radius: 1, damage: 1, gold: 1, color: '#ff5d5d', cluster: 1 },
-  runner: { id: 'runner', hp: 0.6, speed: 1.35, radius: 0.85, damage: 0.8, gold: 1.4, color: '#ffb03a', cluster: 1 },
-  tank: { id: 'tank', hp: 3.2, speed: 0.62, radius: 1.7, damage: 1.8, gold: 3.2, color: '#a066ff', cluster: 1 },
-  swarm: { id: 'swarm', hp: 0.45, speed: 1.25, radius: 0.72, damage: 0.6, gold: 0.8, color: '#4ce6b0', cluster: 5 },
+  grunt: { id: 'grunt', hp: 1, speed: 1, radius: 1, damage: 1, gold: 1, xp: 1, color: '#ff5d5d', cluster: 1 },
+  runner: { id: 'runner', hp: 0.6, speed: 1.35, radius: 0.85, damage: 0.8, gold: 1.4, xp: 1, color: '#ffb03a', cluster: 1 },
+  tank: { id: 'tank', hp: 3.2, speed: 0.62, radius: 1.7, damage: 1.8, gold: 3.2, xp: 2, color: '#a066ff', cluster: 1 },
+  swarm: { id: 'swarm', hp: 0.45, speed: 1.25, radius: 0.72, damage: 0.6, gold: 0.8, xp: 1, color: '#4ce6b0', cluster: 5 },
 };
 
 export interface WaveDef {
@@ -168,7 +220,7 @@ export const BOSS = {
    * fight. This extra factor is what makes the finale last. Set it to 1 for the
    * literal reading of the brief.
    */
-  extraHpFactor: 8,
+  extraHpFactor: 6.5,
   /** Bots keep trickling in during the boss fight, at this share of wave 9. */
   addSpawnRatio: 0.3,
   hitCooldown: 0.6,
@@ -189,6 +241,12 @@ export const META_UPGRADES = {
   damage: { maxLevel: 30, step: 0.06, baseCost: 50, costGrowth: 1.28 },
   fireRate: { maxLevel: 25, step: 0.05, baseCost: 60, costGrowth: 1.3 },
   range: { maxLevel: 20, step: 0.04, baseCost: 65, costGrowth: 1.3 },
+  maxHp: { maxLevel: 25, step: 0.05, baseCost: 55, costGrowth: 1.28 },
+  magnet: { maxLevel: 20, step: 0.05, baseCost: 45, costGrowth: 1.28 },
+  // Same reasoning as the in-run line: small steps and a short track, because
+  // outrunning everything permanently is worse for the game than any other stat
+  // being maxed.
+  moveSpeed: { maxLevel: 12, step: 0.02, baseCost: 90, costGrowth: 1.34 },
 } as const;
 
 export type MetaUpgradeId = keyof typeof META_UPGRADES;

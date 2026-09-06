@@ -21,6 +21,9 @@ const LABELS: Record<MetaUpgradeId, { name: string; description: string; icon: s
   damage: { name: 'Attack', description: 'Damage dealt by every shot', icon: '⚔' },
   fireRate: { name: 'Attack Speed', description: 'Shots fired per second', icon: '⚡' },
   range: { name: 'Range', description: 'Radius of the firing circle', icon: '◎' },
+  maxHp: { name: 'Health', description: 'Size of your health bar', icon: '✚' },
+  magnet: { name: 'Magnet', description: 'Pull radius for gold and XP', icon: '⬤' },
+  moveSpeed: { name: 'Speed', description: 'Movement speed on the map', icon: '➤' },
 };
 
 /** Costs grow geometrically and are rounded to a readable step. */
@@ -39,6 +42,13 @@ export function bonusOf(id: MetaUpgradeId, level: number): number {
 /** Multiplier applied to the matching base stat at the start of a run. */
 export function metaMultiplier(id: MetaUpgradeId): number {
   return 1 + bonusOf(id, getProfile().upgrades[id]);
+}
+
+/** Every line's multiplier, in the shape the engine takes at run start. */
+export function allMetaMultipliers(): Record<MetaUpgradeId, number> {
+  const out = {} as Record<MetaUpgradeId, number>;
+  for (const id of Object.keys(META_UPGRADES) as MetaUpgradeId[]) out[id] = metaMultiplier(id);
+  return out;
 }
 
 export function viewOf(id: MetaUpgradeId): MetaUpgradeView {

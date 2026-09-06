@@ -32,7 +32,7 @@ function defaultProfile(): Profile {
   return {
     version: PROFILE_VERSION,
     gold: 0,
-    upgrades: { damage: 0, fireRate: 0, range: 0 },
+    upgrades: { damage: 0, fireRate: 0, range: 0, maxHp: 0, magnet: 0, moveSpeed: 0 },
     stats: { runs: 0, wins: 0, bestKills: 0, bestLevel: 1, bestSurvivedSeconds: 0, totalGoldEarned: 0 },
     ads: { day: today(), counts: {} },
     settings: { sound: true, haptics: true },

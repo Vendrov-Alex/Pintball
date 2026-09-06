@@ -1,79 +1,67 @@
-import { RUN_UPGRADES } from './config';
+import { RUN_UPGRADE_LINES } from './config';
 
-export type RunUpgradeId = 'fireRate' | 'damage' | 'range';
-export type FillerId = 'repair' | 'bounty';
-export type ChoiceId = RunUpgradeId | FillerId;
+export type RunUpgradeId = keyof typeof RUN_UPGRADE_LINES;
+export type RunPicks = Record<RunUpgradeId, number>;
 
 export interface UpgradeChoice {
-  id: ChoiceId;
+  id: RunUpgradeId;
   name: string;
   detail: string;
   icon: string;
   accent: string;
-  /** Picks already spent on this line, and the cap. Null for one-shot fillers. */
-  picks: number | null;
-  maxPicks: number | null;
+  picks: number;
+  maxPicks: number;
 }
 
-export type RunPicks = Record<RunUpgradeId, number>;
-
-const STAT_META: Record<RunUpgradeId, { name: string; detail: string; icon: string; accent: string }> = {
-  fireRate: { name: 'Rapid Fire', detail: `+${RUN_UPGRADES.step * 100}% attack speed`, icon: '⚡', accent: '#ffd23a' },
-  damage: { name: 'Heavy Rounds', detail: `+${RUN_UPGRADES.step * 100}% shot damage`, icon: '⚔', accent: '#ff5d5d' },
-  range: { name: 'Wide Scope', detail: `+${RUN_UPGRADES.step * 100}% firing radius`, icon: '◎', accent: '#4ce6b0' },
+const META: Record<RunUpgradeId, { name: string; detail: (step: number) => string; icon: string; accent: string }> = {
+  fireRate: { name: 'Rapid Fire', detail: (s) => `+${s}% attack speed`, icon: '⚡', accent: '#ffd23a' },
+  damage: { name: 'Heavy Rounds', detail: (s) => `+${s}% shot damage`, icon: '⚔', accent: '#ff5d5d' },
+  range: { name: 'Wide Scope', detail: (s) => `+${s}% firing radius`, icon: '◎', accent: '#4ce6b0' },
+  magnet: { name: 'Magnet', detail: (s) => `+${s}% pickup radius`, icon: '⬤', accent: '#c07bff' },
+  maxHp: { name: 'Reinforce', detail: (s) => `+${s}% max health, healed`, icon: '✚', accent: '#5ad1ff' },
+  moveSpeed: { name: 'Sprint', detail: (s) => `+${s}% movement speed`, icon: '➤', accent: '#7affc4' },
 };
 
-const FILLER_META: Record<FillerId, { name: string; detail: string; icon: string; accent: string }> = {
-  repair: { name: 'Field Repair', detail: 'Restore 35% of max HP', icon: '✚', accent: '#5ad1ff' },
-  bounty: { name: 'Bounty', detail: 'Instantly bank 150 gold', icon: '◈', accent: '#ffb03a' },
-};
-
-export const REPAIR_SHARE = 0.35;
-export const BOUNTY_GOLD = 150;
+export const RUN_UPGRADE_IDS = Object.keys(RUN_UPGRADE_LINES) as RunUpgradeId[];
 
 export function emptyPicks(): RunPicks {
-  return { fireRate: 0, damage: 0, range: 0 };
+  const picks = {} as RunPicks;
+  for (const id of RUN_UPGRADE_IDS) picks[id] = 0;
+  return picks;
 }
 
-/** Multiplier a stat has earned from its level-up picks. */
-export function pickMultiplier(picks: number): number {
-  return Math.pow(1 + RUN_UPGRADES.step, picks);
+/** Multiplier a line has earned from its picks. */
+export function pickMultiplier(id: RunUpgradeId, picks: number): number {
+  return Math.pow(1 + RUN_UPGRADE_LINES[id].step, picks);
 }
 
-function choiceFor(id: RunUpgradeId, picks: RunPicks): UpgradeChoice {
-  return { id, ...STAT_META[id], picks: picks[id], maxPicks: RUN_UPGRADES.maxPicks };
-}
-
-function fillerFor(id: FillerId): UpgradeChoice {
-  return { id, ...FILLER_META[id], picks: null, maxPicks: null };
+export function isMaxed(id: RunUpgradeId, picks: number): boolean {
+  return picks >= RUN_UPGRADE_LINES[id].maxPicks;
 }
 
 /**
- * Builds the three cards shown on level-up.
+ * Three random cards from the lines that are not yet maxed.
  *
- * There are only three upgrade lines and each caps at five picks, so late in a
- * strong run fewer than three lines remain. The one-shot fillers keep the choice
- * meaningful instead of degrading to a single forced card.
+ * Six lines against fourteen level-ups means a run can never exhaust them: the
+ * most a player can close off is two full lines plus change, so there is always
+ * something left to offer and no filler card is needed.
  */
 export function rollChoices(picks: RunPicks, rand: () => number): UpgradeChoice[] {
-  const open = (Object.keys(picks) as RunUpgradeId[]).filter((id) => picks[id] < RUN_UPGRADES.maxPicks);
-  shuffle(open, rand);
-
-  const chosen: UpgradeChoice[] = open.slice(0, 3).map((id) => choiceFor(id, picks));
-  if (chosen.length < 3) {
-    const fillers: FillerId[] = ['repair', 'bounty'];
-    shuffle(fillers, rand);
-    for (const id of fillers) {
-      if (chosen.length >= 3) break;
-      chosen.push(fillerFor(id));
-    }
-  }
-  return chosen;
-}
-
-function shuffle<T>(arr: T[], rand: () => number): void {
-  for (let i = arr.length - 1; i > 0; i--) {
+  const open = RUN_UPGRADE_IDS.filter((id) => !isMaxed(id, picks[id]));
+  for (let i = open.length - 1; i > 0; i--) {
     const j = Math.floor(rand() * (i + 1));
-    [arr[i], arr[j]] = [arr[j], arr[i]];
+    [open[i], open[j]] = [open[j], open[i]];
   }
+  return open.slice(0, 3).map((id) => {
+    const line = RUN_UPGRADE_LINES[id];
+    return {
+      id,
+      name: META[id].name,
+      detail: META[id].detail(Math.round(line.step * 100)),
+      icon: META[id].icon,
+      accent: META[id].accent,
+      picks: picks[id],
+      maxPicks: line.maxPicks,
+    };
+  });
 }

@@ -27,7 +27,7 @@ Swipe left/right, or tap the dots at the bottom.
 | # | Screen  | What it does |
 |---|---------|--------------|
 | 1 | **Battle**  | The `Battle` button and your lifetime records. |
-| 2 | **Upgrade** | Permanent, gold-bought upgrades: Attack, Attack Speed, Range. |
+| 2 | **Upgrade** | Permanent, gold-bought upgrades: Attack, Attack Speed, Range, Health, Magnet, Speed. |
 | 3 | **Shop**    | Gold packs unlocked by watching a rewarded video ad. |
 
 ## How a run works
@@ -46,10 +46,25 @@ Swipe left/right, or tap the dots at the bottom.
   genuinely left behind are recycled to spawn where you actually are.
 - **HP bar** drains every time a bot touches you. Bots bounce off after landing a
   hit, so they cannot park on top of you.
-- **XP bar** fills with every kill. 5 kills for level 2, 11 more for level 3, 16
-  more for level 4, up to **level 15**.
-- Every level-up: **heal 10% of max HP**, then **pick one of three** upgrades —
-  attack speed, damage or firing radius, each **+25%**, each up to **5 times**.
+- **Every bot drops two orbs where it dies** — gold and XP. Neither counts until
+  you walk over it. Your magnet radius vacuums up anything close, orbs live for
+  eighteen seconds, and everything you leave behind is gone. This is what makes
+  running away expensive: you keep your health and lose the run's economy.
+- **XP bar** fills from collected XP, not from kills. 5 XP for level 2, 11 more
+  for level 3, 16 more for level 4, up to **level 15**. Late bots carry richer
+  orbs, so the curve keeps pace with the table.
+- Every level-up: **heal 10% of max HP**, then **pick one of three** cards, drawn
+  at random from the six lines you have not maxed out. Each line takes **5 picks**
+  and a maxed line stops being offered:
+
+  | Line | Effect | Per pick |
+  |---|---|---|
+  | Rapid Fire | Attack speed | +25% |
+  | Heavy Rounds | Shot damage | +25% |
+  | Wide Scope | Firing radius | +25% |
+  | Magnet | Pickup radius | +25% |
+  | Reinforce | Max health, granted as healing | +25% |
+  | Sprint | Movement speed | +10% |
 - At 3:00 the **boss** arrives: x10 HP, contact damage and gold of a regular bot.
   An arrow pins it to the screen edge whenever it is off camera. It starts slower
   than you and **enrages** after thirty seconds, accelerating until it is
@@ -79,6 +94,10 @@ config with the reasoning:
 - **Boss contact damage** is x10 of the *base* bot damage rather than the
   time-scaled one, which would be 136 against a 120 HP player: an unavoidable
   one-shot.
+- **Sprint is +10% per pick, not +25%.** Five picks at +25% is 3.05x, or 464 vu/s
+  against a 209 vu/s runner — nothing could ever reach you, and a run you cannot
+  lose is a run with no reason to upgrade. The permanent Speed track is short and
+  cheap-stepped for the same reason.
 
 ## The balance harness
 
@@ -88,12 +107,12 @@ on the progression ladder. It reports win rate, survival time, kills, level and
 gold for each, and fails if the app logged any console error.
 
 ```
-runs per row: 6
-meta        win%   time   kills  lvl   gold  onscreen
-fresh        0%   107.5  145.5   7.5  242.0   166.0
-third       17%   186.2  734.7  15.0  1555.0   137.5
-two-third  100%   193.8  877.2  15.0  2197.2    30.2
-maxed      100%   191.5  888.5  15.0  2241.5    19.3
+runs per row: 5
+meta         win%   time   kills  lvl   gold  onscreen  orbs
+fresh         0%    98.5  128.2   7.8   300.6   142.8   0.8
+third         0%   191.5  634.0  15.0  1938.0   253.4   0.8
+two-third    60%   216.8  849.4  15.0  3040.2   133.8   0.8
+maxed       100%   221.6  963.2  15.0  3737.0    34.0   5.2
 ```
 
 The pilot in the harness is a competent kiter: it flees the local crowd weighted
@@ -101,7 +120,9 @@ by inverse square distance, with a tangential component so it strafes around
 pressure instead of sprinting into the bots spawning ahead of it. Measuring
 balance against a stationary dummy would be meaningless now that movement is the
 core of the game — the first version of the pilot survived 181 seconds with 137
-kills, which is what exposed that kiting needed a counter at all.
+kills, which is what exposed that kiting needed a counter at all. Since loot has
+to be collected, the pilot also dives for orbs when the crowd around it thins,
+and it picks from the same three random cards the real UI renders.
 
 That shape is the design target: a new player never sees the boss, a partly
 upgraded player reaches it and loses, and an invested player wins. `npm run

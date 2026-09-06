@@ -18,6 +18,8 @@ export interface Enemy {
   speed: number;
   damage: number;
   gold: number;
+  /** XP dropped on death. */
+  xp: number;
   kind: EnemyKindId | 'boss';
   color: string;
   /** Seconds until this bot can land another hit. */
@@ -41,6 +43,19 @@ export interface Bullet {
    */
   travel: number;
   damage: number;
+}
+
+/** A gold or XP orb dropped where a bot died. */
+export interface Pickup {
+  active: boolean;
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  /** Seconds before an uncollected orb disappears. */
+  life: number;
+  kind: 'gold' | 'xp';
+  value: number;
 }
 
 export interface Particle {
