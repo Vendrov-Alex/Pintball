@@ -1,7 +1,7 @@
 import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
-  appId: 'com.roblaksim.survivor',
+  appId: 'com.survivor.roblaksim',
   appName: 'Roblaksim Survivor',
   webDir: 'dist',
   android: {
