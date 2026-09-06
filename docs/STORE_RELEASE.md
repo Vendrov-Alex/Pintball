@@ -62,9 +62,21 @@ npm run cap:sync
 cd android && ./gradlew bundleRelease     # produces an .aab, required by Play
 ```
 
-Create an upload key once (`keytool -genkey -v -keystore upload.jks -alias upload
--keyalg RSA -keysize 2048 -validity 10000`), store it outside the repo, and
-register `signingConfigs` in `app/build.gradle`. Never commit the keystore.
+Create an upload key once, store it outside the repo, and register
+`signingConfigs` in `app/build.gradle`. Never commit the keystore or its password.
+
+```bash
+keytool -genkey -v -keystore upload.jks -alias upload \
+        -keyalg RSA -keysize 2048 -validity 10000
+```
+
+Play App Signing holds the real signing key for you; the key above only signs
+uploads, and Google can reset it if you lose it — which is not true of the app
+signing key, so enrol in Play App Signing when you create the app.
+
+- Signing your app: https://developer.android.com/studio/publish/app-signing
+- Play App Signing: https://support.google.com/googleplay/android-developer/answer/9842756
+- Upload key reset: https://support.google.com/googleplay/android-developer/answer/9842756#reset
 
 **Play Console listing**:
 
@@ -85,7 +97,12 @@ register `signingConfigs` in `app/build.gradle`. Never commit the keystore.
 
 - Deployment target iOS 14 or higher (App Tracking Transparency needs 14).
 - Device orientation: Portrait only, iPhone + iPad.
-- Signing: your team, automatic signing, a distribution certificate.
+- Signing: your team, automatic signing, a distribution certificate. Let Xcode
+  manage it — a manually created certificate and profile is the usual source of
+  "no signing certificate found" at archive time.
+  - Certificates overview: https://developer.apple.com/help/account/certificates/certificates-overview
+  - Distributing your app: https://developer.apple.com/documentation/xcode/distributing-your-app-for-beta-testing-and-releases
+  - App Store Connect guide: https://developer.apple.com/help/app-store-connect/
 - `Info.plist` additions:
   ```xml
   <key>GADApplicationIdentifier</key>

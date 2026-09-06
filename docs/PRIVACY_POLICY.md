@@ -9,6 +9,7 @@ Google Play.
 > Publish this file at a public URL and paste that URL into both store consoles.
 > Replace every "replace with" placeholder first — both stores reject policies
 > with an unreachable link or an obvious template left unfinished.
+> The step-by-step is in **Hosting checklist** at the bottom of this file.
 
 ## What the game stores
 
@@ -66,3 +67,61 @@ ads are personalised.
 If this policy changes materially, the updated version will be published at this
 URL with a new "last updated" date, and the change will be noted in the app's
 store release notes.
+
+
+---
+
+## Hosting checklist
+
+Work through this once. It takes about fifteen minutes and it is the single most
+common reason a first submission is rejected.
+
+**Fill in the document**
+
+- [ ] Replace `Last updated` with the date you publish
+- [ ] Replace `Contact` with a real, monitored email address — it must be the same
+      one you enter as the developer contact in both consoles
+- [ ] Decide the child-directed question. If you will tick "designed for children"
+      in Play's target-audience section, the policy needs a COPPA paragraph and
+      AdMob must be configured for child-directed treatment. If not, leave the
+      paragraph as written.
+- [ ] Delete this checklist section before publishing the page
+
+**Put it on the internet**
+
+Any of these is acceptable to both stores; pick whichever you already have.
+
+- [ ] GitHub Pages — push the file as `index.md` to a `gh-pages` branch or a
+      `/docs` folder, enable Pages in the repository settings. Free, and the URL
+      is stable.
+- [ ] A page on your own site, e.g. `https://roblaksim.com/pintball/privacy`
+- [ ] A published Notion page, a Google Site, or a GitHub Gist rendered through
+      a static host
+
+**Verify it before you paste it anywhere**
+
+- [ ] Opens in a private/incognito window with no login and no cookie wall
+- [ ] Loads over `https://`, not `http://`
+- [ ] Reachable from a phone on mobile data, not just your home network
+- [ ] The URL is permanent — not a preview, draft or share link that expires
+- [ ] The page shows the policy itself, not a download or a redirect chain
+
+**Paste it into both consoles**
+
+- [ ] Google Play Console → your app → **Policy → App content → Privacy policy**
+- [ ] Google Play Console → **App content → Data safety** — declare *Device or
+      other IDs*, collected, shared, purpose "Advertising or marketing"
+- [ ] Google Play Console → **App content → Ads** — yes, the app contains ads
+- [ ] App Store Connect → your app → **App Privacy → Privacy Policy URL**
+- [ ] App Store Connect → **App Privacy → Data Types** — Device ID and Advertising
+      Data, both used for Third-Party Advertising, Device ID also marked as used
+      for tracking
+- [ ] Also add the URL to the app's store listing description or support page —
+      Apple checks that a policy is reachable from inside the listing
+
+**Keep it true**
+
+- [ ] If you ever add analytics, crash reporting, accounts, cloud saves or a
+      second ad network, update this document and both consoles' declarations in
+      the same release. A declaration that does not match the SDKs in the binary
+      is what gets an app pulled, not the data itself.
