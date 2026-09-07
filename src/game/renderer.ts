@@ -1,5 +1,6 @@
-import { AURA, EQUIPMENT, JOYSTICK, LASER, OBSTACLES, PICKUP, PLAYER, WORLD } from './config';
+import { AURA, EQUIPMENT, JOYSTICK, LASER, OBSTACLES, PICKUP, PLAYER, SHOOTER, STAGE2_BOSS_VISUAL_BONUS, WORLD } from './config';
 import type { Game } from './engine';
+import type { Enemy } from './types';
 
 const clamp = (v: number, lo: number, hi: number): number => (v < lo ? lo : v > hi ? hi : v);
 
@@ -107,6 +108,7 @@ export class Renderer {
     this.drawPickups(ctx, game, time);
     this.drawEnemies(ctx, game);
     this.drawBullets(ctx, game);
+    this.drawEnemyBolts(ctx, game);
     this.drawFireballs(ctx, game);
     this.drawLaserBeam(ctx, game);
     this.drawPlayer(ctx, game, time);
@@ -388,9 +390,13 @@ export class Renderer {
       if (!e.active) continue;
 
       ctx.fillStyle = e.flash > 0.05 ? '#ffffff' : e.color;
-      ctx.beginPath();
-      ctx.arc(e.x, e.y, e.radius, 0, Math.PI * 2);
-      ctx.fill();
+      if (e.shape === 'triangle') {
+        this.drawTriangleEnemy(ctx, e, game);
+      } else {
+        ctx.beginPath();
+        ctx.arc(e.x, e.y, e.radius, 0, Math.PI * 2);
+        ctx.fill();
+      }
 
       if (e.isBoss) {
         ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)';
@@ -411,8 +417,58 @@ export class Renderer {
         ctx.beginPath();
         ctx.arc(e.x, e.y, e.radius + 4, -Math.PI / 2, -Math.PI / 2 + (e.hp / e.maxHp) * Math.PI * 2);
         ctx.stroke();
+      } else if (e.kind === 'shooter' && e.shootCooldown > 0 && e.shootCooldown <= SHOOTER.telegraph) {
+        this.drawShooterTelegraph(ctx, e);
       }
     }
+  }
+
+  /** Stage 2's bots, including the boss (drawn a touch oversized — see
+   *  STAGE2_BOSS_VISUAL_BONUS — for "a big triangle boss" without moving its
+   *  actual hit-radius). Always points at the player: the read it's going
+   *  for is "aimed at you," which for a shooter is also the truth. */
+  private drawTriangleEnemy(ctx: CanvasRenderingContext2D, e: Enemy, game: Game): void {
+    const angle = Math.atan2(game.player.y - e.y, game.player.x - e.x);
+    const r = e.isBoss ? e.radius * STAGE2_BOSS_VISUAL_BONUS : e.radius;
+    ctx.save();
+    ctx.translate(e.x, e.y);
+    ctx.rotate(angle);
+    ctx.beginPath();
+    ctx.moveTo(r, 0);
+    ctx.lineTo(-r * 0.75, r * 0.85);
+    ctx.lineTo(-r * 0.75, -r * 0.85);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
+
+  /** A ring that tightens and brightens over SHOOTER.telegraph seconds right
+   *  before a shooter fires — the fair-warning beat that's the whole point
+   *  of "forces the player to move" rather than an unavoidable chip tax. */
+  private drawShooterTelegraph(ctx: CanvasRenderingContext2D, e: Enemy): void {
+    const t = 1 - e.shootCooldown / SHOOTER.telegraph;
+    ctx.save();
+    ctx.strokeStyle = `rgba(230, 76, 255, ${0.35 + t * 0.5})`;
+    ctx.lineWidth = 2 + t * 2;
+    ctx.beginPath();
+    ctx.arc(e.x, e.y, e.radius + 4 + t * 10, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  private drawEnemyBolts(ctx: CanvasRenderingContext2D, game: Game): void {
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.fillStyle = '#e64cff';
+    ctx.shadowColor = 'rgba(230, 76, 255, 0.8)';
+    ctx.shadowBlur = 10;
+    for (const b of game.enemyBolts.items) {
+      if (!b.active) continue;
+      ctx.beginPath();
+      ctx.arc(b.x, b.y, SHOOTER.projectileRadius, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
   }
 
   private drawBullets(ctx: CanvasRenderingContext2D, game: Game): void {

@@ -238,7 +238,7 @@ export const ENEMY_SCALING = {
   xpAtEnd: 2.2,
 } as const;
 
-export type EnemyKindId = 'grunt' | 'runner' | 'tank' | 'swarm';
+export type EnemyKindId = 'grunt' | 'runner' | 'tank' | 'swarm' | 'shooter';
 
 export interface EnemyKind {
   id: EnemyKindId;
@@ -259,6 +259,15 @@ export const ENEMY_KINDS: Record<EnemyKindId, EnemyKind> = {
   runner: { id: 'runner', hp: 0.6, speed: 1.35, radius: 0.85, damage: 0.8, gold: 1.4, xp: 1, color: '#ffb03a', cluster: 1 },
   tank: { id: 'tank', hp: 3.2, speed: 0.62, radius: 1.7, damage: 1.8, gold: 3.2, xp: 2, color: '#a066ff', cluster: 1 },
   swarm: { id: 'swarm', hp: 0.45, speed: 1.25, radius: 0.72, damage: 0.6, gold: 0.8, xp: 1, color: '#4ce6b0', cluster: 5 },
+  /**
+   * Stage 2 only (see WAVES_STAGE2). Deliberately fragile — hp below even a
+   * runner — because its threat is the shot, not its own durability: reaching
+   * it and killing it fast is always the right answer, so it never becomes a
+   * damage sponge that also outranges you. `damage` doubles as its bolt
+   * damage too (see SHOOTER in updateEnemies) — one number for "how much this
+   * kind hurts you," whether that happens by touch or by shot.
+   */
+  shooter: { id: 'shooter', hp: 0.7, speed: 0.9, radius: 1, damage: 1, gold: 1.5, xp: 1, color: '#e64cff', cluster: 1 },
 };
 
 export interface WaveDef {
@@ -282,6 +291,61 @@ export const WAVES: readonly WaveDef[] = [
   { rate: 8.2, mix: { grunt: 2, runner: 3, tank: 3, swarm: 3 } },
   { rate: 9.8, mix: { grunt: 2, runner: 4, tank: 3, swarm: 4 } },
 ];
+
+/**
+ * Stage 2's wave table. Same nine 20-second slots and the same `rate` per
+ * slot as WAVES — the difficulty step comes from STAGE_HP_MULTIPLIER
+ * doubling every bot's HP and from shooter sharing the spawn budget with the
+ * stage-1 kinds, not from spawning bots faster on top of that.
+ */
+export const WAVES_STAGE2: readonly WaveDef[] = [
+  { rate: 1.4, mix: { grunt: 1 } },
+  { rate: 1.9, mix: { grunt: 3, runner: 1, shooter: 1 } },
+  { rate: 2.5, mix: { grunt: 3, runner: 2, tank: 1, shooter: 1 } },
+  { rate: 3.2, mix: { grunt: 3, runner: 2, tank: 1, swarm: 1, shooter: 1 } },
+  { rate: 4.2, mix: { grunt: 2, runner: 3, tank: 1, swarm: 2, shooter: 2 } },
+  { rate: 5.4, mix: { grunt: 2, runner: 3, tank: 2, swarm: 2, shooter: 2 } },
+  { rate: 6.8, mix: { grunt: 2, runner: 3, tank: 2, swarm: 3, shooter: 2 } },
+  { rate: 8.2, mix: { grunt: 1, runner: 3, tank: 3, swarm: 3, shooter: 3 } },
+  { rate: 9.8, mix: { grunt: 1, runner: 4, tank: 3, swarm: 4, shooter: 3 } },
+];
+
+export type StageId = 1 | 2;
+export const STAGE_IDS: readonly StageId[] = [1, 2];
+
+/**
+ * Stage 2's one across-the-board rule: every bot (and the boss) has double
+ * the HP of its stage-1 counterpart at the same point in the run. Nothing
+ * else about a shared kind (speed, damage, gold) changes between stages —
+ * only HP and, separately, the stage-2-only shooter kind and the triangle
+ * shape (see Enemy.shape) mark a run as "the harder stage."
+ */
+export const STAGE_HP_MULTIPLIER: Record<StageId, number> = { 1: 1, 2: 2 };
+
+/**
+ * The shooter's behavior, not its power level (that's ENEMY_KINDS.shooter,
+ * same as every other kind). It holds a preferred distance instead of
+ * closing to contact range, and its cooldown doubles as the visible wind-up
+ * before it fires — see the `shootCooldown <= SHOOTER.telegraph` check in
+ * renderer.ts — so a hit always comes with a fair beat of warning, which is
+ * what makes "forces the player to keep moving" a fair pressure instead of
+ * an unavoidable chip-damage tax.
+ */
+export const SHOOTER = {
+  standoffRange: 260,
+  standoffSlop: 40,
+  cooldown: 2.2,
+  telegraph: 0.45,
+  projectileSpeed: 340,
+  projectileRadius: 6,
+  /** Beyond this it just keeps closing in rather than opening fire from way out. */
+  engageRange: 420,
+} as const;
+
+/** Purely visual: the stage-2 boss's triangle is drawn a bit past its actual
+ *  hit-radius so "a big triangle boss" reads as bigger without moving the
+ *  hitbox or the HP math (that's STAGE_HP_MULTIPLIER's job alone). */
+export const STAGE2_BOSS_VISUAL_BONUS = 1.15;
 
 export const BOSS = {
   /**

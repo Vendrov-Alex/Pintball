@@ -29,7 +29,7 @@ Swipe left/right, or tap the dots at the bottom.
 
 | # | Screen  | What it does |
 |---|---------|--------------|
-| 1 | **Battle**  | The `Battle` button and your lifetime records. |
+| 1 | **Battle**  | Stage cards (Stage 2 locked until Stage 1 is cleared once) and your lifetime records. |
 | 2 | **Upgrade** | Permanent, gold-bought upgrades: Attack, Attack Speed, Range, Health, Magnet, Speed. (More Hands is in-run only — see the level-up table below.) |
 | 3 | **Gear**    | The three boss-dropped equipment pieces — locked/unlocked gallery, nothing to buy. See below. |
 | 4 | **Shop**    | Gold packs unlocked by watching a rewarded video ad. |
@@ -173,6 +173,46 @@ enough to farm three boss kills from a fresh profile), so it cannot move the
 harness's win-rate ladder. It is postgame power by design, not a lever tuned
 against the core difficulty curve.
 
+## Stage 2
+
+A second, harder version of the same 3-minute-run-plus-boss structure, not a
+new game mode: unlocked once Stage 1's boss goes down (`Profile.highestStageCleared`
+in `src/meta/profile.ts`), picked from a stage card on the Battle screen. A
+locked card shows a `Beat Stage 1 to unlock` line instead of a play state.
+
+- **Every bot is drawn as a triangle instead of a circle** (`Enemy.shape`,
+  set once at spawn from `Game.stage`), boss included — the boss's triangle
+  is additionally drawn oversized versus its actual hit-radius
+  (`STAGE2_BOSS_VISUAL_BONUS`), a purely visual "big triangle boss" that
+  never touches the HP math or the hitbox.
+- **Every bot's HP is doubled** (`STAGE_HP_MULTIPLIER` in `src/game/config.ts`).
+  Nothing else about a kind shared with Stage 1 changes — same speed, same
+  contact damage, same gold — only HP, so a Stage 2 grunt takes twice the
+  bullets a Stage 1 grunt does for the same reward. That's the one variable
+  this stage turns, deliberately, rather than compounding several at once.
+- **A new kind, the shooter** (`ENEMY_KINDS.shooter`, magenta), mixed into
+  `WAVES_STAGE2` alongside the Stage 1 kinds at the same per-wave spawn
+  rate as `WAVES` — Stage 2 is harder from HP and a new threat, not from a
+  faster wave. A shooter holds a preferred distance instead of closing to
+  contact range (`SHOOTER.standoffRange`), strafing when it's already
+  there, and fires a bolt at the player on a cooldown that doubles as a
+  visible wind-up ring (`SHOOTER.telegraph`) — the fair-warning beat that
+  makes "forces you to keep moving" a real pressure instead of an
+  unavoidable chip-damage tax. Its own HP is deliberately low: reaching and
+  killing it fast is always the right answer, so it never becomes a damage
+  sponge that also outranges you.
+
+Clearing Stage 2's boss shows an "unlocked" line on the result screen the
+same way a boss-drop does, and updates the Battle screen's stage cards the
+next time they're rendered. Winning Stage 1 again after Stage 2 is already
+unlocked doesn't re-show that message — `recordStageClear` only fires once,
+the first time a stage's boss actually goes down.
+
+Measured on the harness rather than assumed: at the same meta-upgrade tier
+that beats Stage 1 75% of the time, Stage 2 wins about 25% — a real step up,
+not a wall (`node scripts/simulate.mjs --sweep --stage 2`). A fully maxed
+build still clears it every time, same as Stage 1.
+
 ## Where the numbers live
 
 **Every balance value is in `src/game/config.ts`.** Wave rates, bot stats, the XP
@@ -227,11 +267,18 @@ against a stationary dummy would be meaningless now that movement is the core
 of the game — the first version of the pilot survived 181 seconds with 137
 kills, which is what exposed that kiting needed a counter at all. Since loot has
 to be collected, the pilot also dives for orbs when the crowd around it thins,
-and it picks from the same three random cards the real UI renders.
+and it picks from the same three random cards the real UI renders. Since Stage
+2's shooter, it also steers away from incoming bolts weighted by inverse
+distance — the same reasoning as the wall-avoidance patch: a pilot blind to
+projectiles would measure Stage 2 as harder than it actually plays, not
+because the pilot is realistic, but because standing in fire that any sighted
+player would step out of isn't the thing worth measuring.
 
 That shape is the design target: a new player never sees the boss, a partly
 upgraded player reaches it and loses, and an invested player wins. `npm run
 qa:shots` additionally screenshots every screen into `screenshots/`.
+`node scripts/simulate.mjs --sweep --stage 2` runs the same ladder against
+Stage 2's wave table instead of Stage 1's.
 
 ## Building for the stores
 

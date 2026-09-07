@@ -8,6 +8,7 @@ import { setAudioEnabled, sfx, unlockAudio } from './core/audio';
 import { music } from './core/music';
 import * as haptics from './core/haptics';
 import { isNative } from './core/platform';
+import type { StageId } from './game/config';
 import { getProfile, initProfile, onProfileChange, setSetting } from './meta/profile';
 import { flushCloudSync, initCloudSync } from './meta/cloudSync';
 import { AccountModal } from './ui/accountModal';
@@ -65,7 +66,7 @@ async function boot(): Promise<void> {
   const wallet = qs<HTMLElement>(app, '.wallet__value');
   const track = qs<HTMLElement>(app, '.pager__track');
 
-  const home = new HomeScreen(() => startBattle());
+  const home = new HomeScreen((stage) => startBattle(stage));
   const upgrades = new UpgradesScreen(() => refreshAll());
   const gear = new GearScreen();
   const shop = new ShopScreen(() => refreshAll());
@@ -99,12 +100,12 @@ async function boot(): Promise<void> {
   }
   initCloudSync();
 
-  function startBattle(): void {
+  function startBattle(stage: StageId): void {
     unlockAudio();
     sfx.ui();
     haptics.tap();
     pager.setLocked(true);
-    battle.start();
+    battle.start(stage);
   }
 
   // The score starts on first interaction (autoplay policy) and stays in the

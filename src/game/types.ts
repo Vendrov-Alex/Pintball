@@ -27,6 +27,30 @@ export interface Enemy {
   /** Seconds of white "just got shot" flash left. */
   flash: number;
   isBoss: boolean;
+  /** Stage 1 draws every bot as a circle; stage 2 as a triangle — set once at
+   *  spawn from the stage the run is being played on, not per-kind. */
+  shape: 'circle' | 'triangle';
+  /** Shooter kind only: seconds until it can fire again, and doubles as the
+   *  visible wind-up window right before it does (see SHOOTER.telegraph). */
+  shootCooldown: number;
+  /** Shooter kind only: which way it strafes while holding its standoff
+   *  range, picked once at spawn so a lone shooter commits to a direction
+   *  instead of jittering between +1/-1 every frame. */
+  strafeSign: 1 | -1;
+}
+
+/** A shooter bot's projectile — the one source of ranged damage in the game,
+ *  which is what actually forces the player to keep moving rather than
+ *  camping in one spot and letting the gun's autoaim do the whole run. */
+export interface EnemyBolt {
+  active: boolean;
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  /** Safety despawn if it never reaches the player or a wall. */
+  life: number;
+  damage: number;
 }
 
 export interface Bullet {

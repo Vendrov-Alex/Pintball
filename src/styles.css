@@ -272,40 +272,91 @@ button {
   font-size: 14px;
 }
 
-.battle-btn {
+.stage-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.stage-card {
   position: relative;
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 14px;
   width: 100%;
-  padding: 20px;
-  border-radius: 22px;
+  padding: 16px 18px;
+  border: none;
+  border-radius: 20px;
   background: linear-gradient(160deg, #3fd3ff, #2f7bff 60%, #6b3bff);
   box-shadow: 0 14px 34px rgba(47, 123, 255, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.35);
   color: #061021;
-  text-align: center;
+  text-align: left;
   transition: transform 120ms ease, filter 120ms ease;
 }
 
-.battle-btn:active {
+.stage-card:active {
   transform: scale(0.975);
   filter: brightness(1.08);
 }
 
-.battle-btn__label {
-  display: block;
-  font-size: 30px;
-  font-weight: 800;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+.stage-card__icon {
+  flex: none;
+  width: 46px;
+  height: 46px;
+  display: grid;
+  place-items: center;
+  border-radius: 14px;
+  background: rgba(6, 16, 33, 0.16);
+  font-size: 22px;
 }
 
-.battle-btn__sub {
+.stage-card__main {
+  flex: 1;
+  min-width: 0;
+}
+
+.stage-card__title {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.stage-card__title strong {
+  font-size: 19px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+
+.stage-card__status {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+}
+
+.stage-card__desc {
   display: block;
   margin-top: 2px;
   font-size: 12px;
   font-weight: 600;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  opacity: 0.62;
+  opacity: 0.75;
+}
+
+.stage-card.is-locked {
+  border: 1px solid var(--line);
+  background: var(--panel);
+  box-shadow: none;
+  color: var(--text);
+  opacity: 0.65;
+}
+
+.stage-card.is-locked .stage-card__icon {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--muted);
+}
+
+.stage-card.is-locked .stage-card__status {
+  color: var(--muted);
 }
 
 .stat-grid {
@@ -1017,6 +1068,20 @@ button {
   background: color-mix(in srgb, var(--accent) 26%, transparent);
   color: var(--accent);
   font-size: 16px;
+}
+
+.result__unlock {
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: rgba(76, 230, 176, 0.12);
+  border: 1px solid rgba(76, 230, 176, 0.35);
+  margin-bottom: 12px;
+  font-size: 13px;
+  text-align: center;
+}
+
+.result__unlock strong {
+  color: var(--good);
 }
 
 .result__gold {

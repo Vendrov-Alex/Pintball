@@ -1,5 +1,5 @@
 import { load, save } from '../core/storage';
-import { EQUIPMENT_IDS, META_UPGRADES, type EquipmentId, type MetaUpgradeId } from '../game/config';
+import { EQUIPMENT_IDS, META_UPGRADES, type EquipmentId, type MetaUpgradeId, type StageId } from '../game/config';
 
 const STORAGE_KEY = 'roblaksim.profile.v1';
 /**
@@ -29,6 +29,11 @@ export interface Profile {
   /** Boss-dropped gear that's been found — see EQUIPMENT in game/config.ts. */
   equipment: Record<EquipmentId, boolean>;
   /**
+   * The highest stage ever cleared (boss killed, not just retreated from).
+   * Stage N is playable once this is >= N - 1; 0 means only Stage 1 is open.
+   */
+  highestStageCleared: number;
+  /**
    * Epoch ms of the last change, local or from the cloud. This is how an
    * optional cloud sync (see meta/cloudSync.ts) decides which copy of the
    * profile is newer when reconciling two devices — last-write-wins on the
@@ -53,6 +58,7 @@ function defaultProfile(): Profile {
     ads: { day: today(), counts: {} },
     settings: { sound: true, haptics: true },
     equipment: { laser: false, fireCannon: false, aura: false },
+    highestStageCleared: 0,
     updatedAt: 0,
   };
 }
@@ -86,6 +92,9 @@ function hydrate(raw: string): Profile {
     merged.upgrades[id] = Number.isFinite(level) ? Math.max(0, Math.min(META_UPGRADES[id].maxLevel, Math.floor(level))) : 0;
   }
   merged.gold = Number.isFinite(merged.gold) ? Math.max(0, Math.floor(merged.gold)) : 0;
+  merged.highestStageCleared = Number.isFinite(merged.highestStageCleared)
+    ? Math.max(0, Math.floor(merged.highestStageCleared))
+    : 0;
   return merged;
 }
 
@@ -104,6 +113,11 @@ export async function initProfile(): Promise<Profile> {
 
 export function getProfile(): Profile {
   return profile;
+}
+
+/** Stage N is playable once the previous one has been cleared at least once. */
+export function isStageUnlocked(stage: StageId): boolean {
+  return stage <= profile.highestStageCleared + 1;
 }
 
 export function onProfileChange(fn: (p: Profile) => void): () => void {
@@ -170,6 +184,16 @@ export function recordRun(result: { kills: number; level: number; survivedSecond
   s.bestLevel = Math.max(s.bestLevel, result.level);
   s.bestSurvivedSeconds = Math.max(s.bestSurvivedSeconds, result.survivedSeconds);
   commit();
+}
+
+/** Returns true only the first time this stage's boss goes down — that's the
+ *  moment the next stage unlocks, which the result screen needs to know
+ *  about to show an "unlocked" message instead of a plain win. */
+export function recordStageClear(stage: StageId): boolean {
+  if (stage <= profile.highestStageCleared) return false;
+  profile.highestStageCleared = stage;
+  commit();
+  return true;
 }
 
 function rolloverAdDay(): void {

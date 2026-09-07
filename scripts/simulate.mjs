@@ -20,6 +20,7 @@ const flag = (name, fallback) => {
 const RUNS = Number(flag('runs', 5));
 const SHOTS = args.includes('--shots');
 const SWEEP = args.includes('--sweep');
+const STAGE = Number(flag('stage', 1));
 const SHOT_DIR = flag('shot-dir', 'screenshots');
 const PORT = Number(flag('port', 5199));
 /** Permanent upgrade levels: damage,fireRate,range,maxHp,magnet,moveSpeed */
@@ -55,9 +56,9 @@ async function startServer() {
   return { proc, url };
 }
 
-const simulateRun = async (page, meta) =>
+const simulateRun = async (page, meta, stage) =>
   page.evaluate(
-    ({ meta, metaSteps }) => {
+    ({ meta, metaSteps, stage }) => {
       const battle = window.__battle;
       const game = window.__game;
       if (!battle || !game) throw new Error('debug handles missing');
@@ -70,7 +71,8 @@ const simulateRun = async (page, meta) =>
       ids.forEach((id, i) => {
         metaMul[id] = 1 + (meta[i] || 0) * metaSteps[id];
       });
-      game.start(metaMul);
+      const equipment = { laser: false, fireCannon: false, aura: false };
+      game.start(metaMul, equipment, stage);
 
       const dt = 1 / 60;
       const picked = [];
@@ -164,12 +166,35 @@ const simulateRun = async (page, meta) =>
           if (py < -edge) wy += (-edge - py) / margin;
         }
 
+        // Stage 2's shooter bolts: push away from any bolt close enough to
+        // matter, weighted by inverse distance so an about-to-hit shot
+        // dominates a merely-nearby one. Without this the pilot stands in
+        // incoming fire exactly like a sighted player never would, which
+        // would measure stage 2 as far harder than it actually plays.
+        let bx = 0;
+        let by = 0;
+        for (const b of game.enemyBolts.items) {
+          if (!b.active) continue;
+          const dx = px - b.x;
+          const dy = py - b.y;
+          const d2 = dx * dx + dy * dy;
+          if (d2 > 220 * 220 || d2 < 1) continue;
+          const d = Math.sqrt(d2);
+          bx += dx / d / d;
+          by += dy / d / d;
+        }
+        const bl = Math.hypot(bx, by);
+        if (bl > 1e-6) {
+          bx /= bl;
+          by /= bl;
+        }
+
         // Crowded: get out. Clear: go collect. 40% tangential either way, so the
         // pilot strafes around pressure instead of sprinting into the bots that
         // spawn ahead of it.
         const lootWeight = near >= 9 ? 0.35 : 0.95;
-        let dx = ax + lx * lootWeight - ay * 0.4 + wx * 3;
-        let dy = ay + ly * lootWeight + ax * 0.4 + wy * 3;
+        let dx = ax + lx * lootWeight - ay * 0.4 + wx * 3 + bx * 2;
+        let dy = ay + ly * lootWeight + ax * 0.4 + wy * 3 + by * 2;
         const dl = Math.hypot(dx, dy);
         if (dl > 1e-6) {
           hx = dx / dl;
@@ -212,7 +237,7 @@ const simulateRun = async (page, meta) =>
         liveEnemies: game.enemies.countActive(),
       };
     },
-    { meta, metaSteps: META_STEPS },
+    { meta, metaSteps: META_STEPS, stage },
   );
 
 async function main() {
@@ -237,22 +262,26 @@ async function main() {
   page.on('pageerror', (err) => problems.push(`pageerror: ${err.message}`));
 
   await page.goto(url, { waitUntil: 'networkidle' });
-  await page.waitForSelector('.battle-btn', { timeout: 10000 });
+  await page.waitForSelector('.stage-card[data-stage="1"]', { timeout: 10000 });
 
   if (SHOTS) {
     mkdirSync(SHOT_DIR, { recursive: true });
     await page.screenshot({ path: `${SHOT_DIR}/01-home.png` });
+    // Dots: 0 Battle, 1 Upgrade, 2 Gear, 3 Shop.
     await page.evaluate(() => document.querySelectorAll('.dot')[1].click());
     await sleep(450);
     await page.screenshot({ path: `${SHOT_DIR}/02-upgrades.png` });
     await page.evaluate(() => document.querySelectorAll('.dot')[2].click());
     await sleep(450);
-    await page.screenshot({ path: `${SHOT_DIR}/03-shop.png` });
+    await page.screenshot({ path: `${SHOT_DIR}/03-gear.png` });
+    await page.evaluate(() => document.querySelectorAll('.dot')[3].click());
+    await sleep(450);
+    await page.screenshot({ path: `${SHOT_DIR}/04-shop.png` });
     await page.evaluate(() => document.querySelectorAll('.dot')[0].click());
     await sleep(450);
   }
 
-  await page.click('.battle-btn');
+  await page.click('.stage-card[data-stage="1"]');
   await page.waitForSelector('.battle:not([hidden])');
   await sleep(1200);
 
@@ -270,14 +299,14 @@ async function main() {
       document.querySelector('.modal--levelup').hidden = true;
     });
     await sleep(200);
-    await page.screenshot({ path: `${SHOT_DIR}/04-battle.png` });
+    await page.screenshot({ path: `${SHOT_DIR}/05-battle.png` });
     // Force a level-up card so the choice UI can be inspected.
     await page.evaluate(() => {
       const g = window.__game;
       for (let i = 0; i < 60 * 30 && g.phase === 'running'; i++) g.update(1 / 60);
     });
     await sleep(300);
-    await page.screenshot({ path: `${SHOT_DIR}/05-levelup.png` });
+    await page.screenshot({ path: `${SHOT_DIR}/06-levelup.png` });
   }
 
   // The progression ladder: an untouched account, then a third, two thirds and a
@@ -291,11 +320,11 @@ async function main() {
       ]
     : [['custom   ', META]];
 
-  console.log(`\nruns per row: ${RUNS}`);
+  console.log(`\nstage ${STAGE} — runs per row: ${RUNS}`);
   console.log('meta         win%   time   kills  lvl   gold  onscreen  orbs');
   for (const [label, meta] of ladder) {
     const results = [];
-    for (let i = 0; i < RUNS; i++) results.push(await simulateRun(page, meta));
+    for (let i = 0; i < RUNS; i++) results.push(await simulateRun(page, meta, STAGE));
     const avg = (fn) => (results.reduce((s, r) => s + fn(r), 0) / results.length).toFixed(1);
     const winPct = ((results.filter((r) => r.won).length / RUNS) * 100).toFixed(0);
     console.log(

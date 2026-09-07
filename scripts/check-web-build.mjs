@@ -32,9 +32,9 @@ page.on('pageerror', (e) => errs.push('pageerror: ' + e.message));
 page.on('console', (m) => { if (m.type() === 'error') errs.push('console: ' + m.text()); });
 
 await page.goto('http://127.0.0.1:5401/', { waitUntil: 'domcontentloaded' });
-await page.waitForSelector('.battle-btn', { timeout: 15000 });
+await page.waitForSelector('.stage-card[data-stage="1"]', { timeout: 15000 });
 console.log('single-file page booted');
-await page.tap('.battle-btn');
+await page.tap('.stage-card[data-stage="1"]');
 await page.waitForSelector('.battle:not([hidden])');
 
 const box = await page.locator('.battle__canvas').boundingBox();

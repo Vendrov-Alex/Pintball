@@ -1,14 +1,14 @@
 import { sfx, unlockAudio } from '../core/audio';
 import { music } from '../core/music';
 import * as haptics from '../core/haptics';
-import { EQUIPMENT, JOYSTICK, MAX_LEVEL, OBSTACLES, RUN_DURATION, WAVES, WAVE_SECONDS, WORLD } from '../game/config';
+import { EQUIPMENT, JOYSTICK, MAX_LEVEL, OBSTACLES, RUN_DURATION, WAVES, WAVES_STAGE2, WAVE_SECONDS, WORLD, type StageId } from '../game/config';
 import { Game } from '../game/engine';
 import { Renderer, type JoystickView } from '../game/renderer';
 import type { RunResult } from '../game/types';
 import type { UpgradeChoice } from '../game/upgrades';
 import { applyBossDrop, ownedEquipmentMap, rollBossDrop } from '../meta/equipment';
 import { allMetaMultipliers } from '../meta/metaUpgrades';
-import { addGold, getProfile, recordRun } from '../meta/profile';
+import { addGold, getProfile, recordRun, recordStageClear } from '../meta/profile';
 import { formatGold, formatTime, onTap, qs } from './dom';
 
 const FIXED_DT = 1 / 60;
@@ -40,6 +40,7 @@ export class Battle {
   private lastFrame = 0;
   private accumulator = 0;
   private active = false;
+  private stage: StageId = 1;
   private lastWave = -1;
   private stickPointer: number | null = null;
   private stick: JoystickView = { active: false, baseX: 0, baseY: 0, knobX: 0, knobY: 0 };
@@ -146,10 +147,11 @@ export class Battle {
 
   // ------------------------------------------------------------------- start
 
-  start(): void {
+  start(stage: StageId = this.stage): void {
     unlockAudio();
     music.enterBattle();
     this.active = true;
+    this.stage = stage;
     this.root.hidden = false;
     this.resultModal.hidden = true;
     this.levelModal.hidden = true;
@@ -160,9 +162,9 @@ export class Battle {
     this.hudCache = { hp: -1, maxHp: -1, xp: -1, level: -1, gold: -1, time: -1, wave: -1 };
 
     this.layout();
-    this.game.start(allMetaMultipliers(), ownedEquipmentMap());
+    this.game.start(allMetaMultipliers(), ownedEquipmentMap(), stage);
 
-    this.showBanner('Wave 1', 'banner--wave');
+    this.showBanner(`Stage ${stage} · Wave 1`, 'banner--wave');
     this.lastFrame = performance.now();
     this.accumulator = 0;
     cancelAnimationFrame(this.raf);
@@ -332,11 +334,13 @@ export class Battle {
       this.hudTimer.classList.toggle('is-urgent', !g.bossActive && remaining <= 10);
     }
 
-    const wave = Math.min(WAVES.length, Math.floor(g.elapsed / WAVE_SECONDS) + 1);
+    const waveCount = this.stage === 2 ? WAVES_STAGE2.length : WAVES.length;
+    const wave = Math.min(waveCount, Math.floor(g.elapsed / WAVE_SECONDS) + 1);
     if (wave !== cache.wave && !g.bossActive) {
       cache.wave = wave;
-      this.hudWave.textContent = `Wave ${wave}`;
-      if (this.lastWave !== -1 && wave !== this.lastWave) this.showBanner(`Wave ${wave}`, 'banner--wave');
+      const label = this.stage === 2 ? `S2 · Wave ${wave}` : `Wave ${wave}`;
+      this.hudWave.textContent = label;
+      if (this.lastWave !== -1 && wave !== this.lastWave) this.showBanner(label, 'banner--wave');
       this.lastWave = wave;
     }
 
@@ -459,6 +463,11 @@ export class Battle {
     const drop = result.won && result.bossKilled ? rollBossDrop() : null;
     if (drop) applyBossDrop(drop);
 
+    // Only a real kill clears the stage — retreating with the gold you'd
+    // already earned is a legitimate way to end a run, but it shouldn't open
+    // the next one.
+    const unlockedNext = result.won && result.bossKilled ? recordStageClear(this.stage) : false;
+
     addGold(result.gold);
     recordRun({
       kills: result.kills,
@@ -484,6 +493,12 @@ export class Battle {
            </div>`
       : '';
 
+    const unlockHtml = unlockedNext
+      ? `<div class="result__unlock">
+           <span><strong>Stage ${this.stage + 1} unlocked!</strong> New foes are waiting on the home screen.</span>
+         </div>`
+      : '';
+
     const card = qs(this.resultModal, '.modal__card');
     card.innerHTML = `
       <p class="result__eyebrow ${result.won ? 'is-win' : 'is-loss'}">${
@@ -496,6 +511,7 @@ export class Battle {
         <div><span>Survived</span><strong>${formatTime(result.survivedSeconds)}</strong></div>
       </div>
       ${gearHtml}
+      ${unlockHtml}
       <div class="result__gold">
         <span class="coin coin--lg" aria-hidden="true"></span>
         <strong>+${formatGold(result.gold + (drop?.bonusGold ?? 0))}</strong>

@@ -16,10 +16,13 @@ import {
   PLAYER,
   RUN_DURATION,
   RUN_UPGRADE_LINES,
+  SHOOTER,
   SPAWN_LEAD_BIAS,
+  STAGE_HP_MULTIPLIER,
   VICTORY,
   VIEW_SHORT_SIDE,
   WAVES,
+  WAVES_STAGE2,
   WAVE_SECONDS,
   WORLD,
   XP_TABLE,
@@ -27,10 +30,12 @@ import {
   type EnemyKindId,
   type EquipmentId,
   type Obstacle,
+  type StageId,
+  type WaveDef,
 } from './config';
 import { SpatialGrid } from './grid';
 import { Pool } from './pool';
-import type { Bullet, Enemy, Fireball, FloatText, LaserBeam, Particle, Pickup, RunResult, Vec, ViewInfo } from './types';
+import type { Bullet, Enemy, EnemyBolt, Fireball, FloatText, LaserBeam, Particle, Pickup, RunResult, Vec, ViewInfo } from './types';
 import {
   emptyPicks,
   pickMultiplier,
@@ -51,6 +56,9 @@ const MAX_PARTICLES = 420;
 const MAX_FLOATS = 200;
 /** Two orbs per kill at up to ten kills a second, times an 18 second lifetime. */
 const MAX_PICKUPS = 640;
+// Shooters fire on a 2.2s cooldown each and only exist in stage 2 waves —
+// generous headroom for a screen full of them, not sized for every enemy.
+const MAX_ENEMY_BOLTS = 80;
 
 export type Phase = 'idle' | 'running' | 'levelup' | 'victory' | 'ended';
 
@@ -133,6 +141,7 @@ export class Game {
   readonly enemies = new Pool<Enemy>(MAX_ENEMIES, () => ({
     active: false, x: 0, y: 0, kx: 0, ky: 0, hp: 1, maxHp: 1, radius: 10,
     speed: 50, damage: 1, gold: 1, xp: 1, kind: 'grunt', color: '#fff', hitTimer: 0, flash: 0, isBoss: false,
+    shape: 'circle', shootCooldown: 0, strafeSign: 1,
   }));
   readonly bullets = new Pool<Bullet>(MAX_BULLETS, () => ({
     active: false, x: 0, y: 0, vx: 0, vy: 0, life: 0, damage: 1,
@@ -151,8 +160,13 @@ export class Game {
   readonly fireballs = new Pool<Fireball>(6, () => ({
     active: false, x: 0, y: 0, originX: 0, originY: 0, targetX: 0, targetY: 0, t: 0, duration: 1,
   }));
+  readonly enemyBolts = new Pool<EnemyBolt>(MAX_ENEMY_BOLTS, () => ({
+    active: false, x: 0, y: 0, vx: 0, vy: 0, life: 0, damage: 1,
+  }));
 
   boss: Enemy | null = null;
+  /** Which stage this run is on — see STAGE_HP_MULTIPLIER and WAVES_STAGE2 in config.ts. */
+  stage: StageId = 1;
 
   /**
    * Boss-dropped gear (see meta/equipment.ts), passed in at start() and fixed
@@ -208,11 +222,18 @@ export class Game {
   /**
    * `meta` carries the permanent, gold-bought multipliers. `equipment` is
    * which boss-dropped gear is owned — everything owned is active for the
-   * whole run; there's no loadout to manage for three items.
+   * whole run; there's no loadout to manage for three items. `stage` picks
+   * which wave table and HP multiplier the run uses (see config.ts) and is
+   * fixed for the whole run, same as everything else start() sets up.
    */
-  start(meta: PlayerStats, equipment: Record<EquipmentId, boolean> = { laser: false, fireCannon: false, aura: false }): void {
+  start(
+    meta: PlayerStats,
+    equipment: Record<EquipmentId, boolean> = { laser: false, fireCannon: false, aura: false },
+    stage: StageId = 1,
+  ): void {
     this.metaMultipliers = meta;
     this.equipment = equipment;
+    this.stage = stage;
     this.picks = emptyPicks();
     this.refreshStats();
     this.maxHp = this.stats.maxHp;
@@ -247,6 +268,7 @@ export class Game {
     this.enemies.clear();
     this.bullets.clear();
     this.fireballs.clear();
+    this.enemyBolts.clear();
     this.particles.clear();
     this.floats.clear();
     this.pickups.clear();
@@ -383,6 +405,7 @@ export class Game {
     this.updateFireballs(dt);
     this.updateAura(dt);
     this.updateBullets(dt);
+    this.updateEnemyBolts(dt);
     this.updatePickups(dt);
     this.updateParticles(dt);
     this.updateFloats(dt);
@@ -497,8 +520,15 @@ export class Game {
 
   // ---------------------------------------------------------------- spawning
 
+  /** Stage 2 has its own wave table (adds the shooter kind into the mix) —
+   *  everything that reads WAVES to drive spawning goes through this instead. */
+  private waves(): readonly WaveDef[] {
+    return this.stage === 2 ? WAVES_STAGE2 : WAVES;
+  }
+
   private waveIndex(): number {
-    return clamp(Math.floor(this.elapsed / WAVE_SECONDS), 0, WAVES.length - 1);
+    const waves = this.waves();
+    return clamp(Math.floor(this.elapsed / WAVE_SECONDS), 0, waves.length - 1);
   }
 
   /** 0 at the start of the run, 1 at the boss. */
@@ -507,8 +537,9 @@ export class Game {
   }
 
   private updateSpawning(dt: number): void {
-    const wave = WAVES[this.waveIndex()];
-    const rate = this.bossActive ? WAVES[WAVES.length - 1].rate * BOSS.addSpawnRatio : wave.rate;
+    const waves = this.waves();
+    const wave = waves[this.waveIndex()];
+    const rate = this.bossActive ? waves[waves.length - 1].rate * BOSS.addSpawnRatio : wave.rate;
     this.spawnCarry += rate * dt;
     // The budget is spent in BOTS, not spawn events: a swarm cluster costs five.
     // Counting events instead silently multiplied the real wave rate by ~2.2x.
@@ -572,7 +603,7 @@ export class Game {
     e.y = y;
     e.kx = 0;
     e.ky = 0;
-    e.maxHp = ENEMY_BASE.hp * kind.hp * hpMul;
+    e.maxHp = ENEMY_BASE.hp * kind.hp * hpMul * STAGE_HP_MULTIPLIER[this.stage];
     e.hp = e.maxHp;
     e.radius = ENEMY_BASE.radius * kind.radius;
     e.speed = ENEMY_BASE.speed * kind.speed * speedMul;
@@ -584,6 +615,11 @@ export class Game {
     e.hitTimer = 0;
     e.flash = 0;
     e.isBoss = false;
+    e.shape = this.stage === 2 ? 'triangle' : 'circle';
+    // Randomised so a wave of shooters doesn't fire in lockstep or all strafe
+    // the same way — irrelevant, and left at these defaults, for every other kind.
+    e.shootCooldown = kind.id === 'shooter' ? Math.random() * SHOOTER.cooldown : 0;
+    e.strafeSign = Math.random() < 0.5 ? 1 : -1;
     // A spawn point computed from the player's position and the viewport can
     // land outside the fence or inside a wall when the player is near one;
     // shove it back in exactly the way movement already does every frame.
@@ -598,7 +634,7 @@ export class Game {
     e.y = this.player.y + Math.sin(angle) * this.view.spawnRy;
     e.kx = 0;
     e.ky = 0;
-    e.maxHp = ENEMY_BASE.hp * ENEMY_SCALING.hpAtEnd * BOSS.hpMultiplier * BOSS.extraHpFactor;
+    e.maxHp = ENEMY_BASE.hp * ENEMY_SCALING.hpAtEnd * BOSS.hpMultiplier * BOSS.extraHpFactor * STAGE_HP_MULTIPLIER[this.stage];
     e.hp = e.maxHp;
     e.radius = ENEMY_BASE.radius * BOSS.radiusMultiplier;
     e.speed = ENEMY_BASE.speed * BOSS.speedMultiplier;
@@ -610,6 +646,9 @@ export class Game {
     e.hitTimer = 0;
     e.flash = 0;
     e.isBoss = true;
+    e.shape = this.stage === 2 ? 'triangle' : 'circle';
+    e.shootCooldown = 0;
+    e.strafeSign = 1;
     this.constrainToWorld(e, e.radius);
 
     this.boss = e;
@@ -655,8 +694,15 @@ export class Game {
 
       const dist = Math.sqrt(distSq) || 1;
       const speed = e.isBoss ? e.speed * this.bossEnrage() : e.speed;
-      let vx = (dx / dist) * speed;
-      let vy = (dy / dist) * speed;
+      let vx: number;
+      let vy: number;
+      if (e.kind === 'shooter' && !e.isBoss) {
+        [vx, vy] = this.shooterVelocity(e, dx, dy, dist, speed);
+        this.updateShooterFire(e, dx, dy, dist, dt);
+      } else {
+        vx = (dx / dist) * speed;
+        vy = (dy / dist) * speed;
+      }
 
       // Separation keeps the swarm readable instead of collapsing to one dot.
       if (!e.isBoss) {
@@ -710,11 +756,21 @@ export class Game {
     e.kx = -nx * push;
     e.ky = -ny * push;
 
+    this.damagePlayer(e.damage, nx, ny, e.isBoss ? 18 : 7);
+  }
+
+  /**
+   * `nx, ny` points from whatever hit the player toward the player. Shared by
+   * bot contact and a shooter's bolt — the game's only two sources of damage
+   * to the player — so the iframes/shake/damage-number treatment is
+   * identical no matter which one lands.
+   */
+  private damagePlayer(amount: number, nx: number, ny: number, shakeAmt: number): void {
     if (this.invuln > 0) return;
     this.invuln = PLAYER.iframes;
-    const dealt = Math.min(this.hp, e.damage);
-    this.hp = Math.max(0, this.hp - e.damage);
-    this.shake = Math.min(22, this.shake + (e.isBoss ? 18 : 7));
+    const dealt = Math.min(this.hp, amount);
+    this.hp = Math.max(0, this.hp - amount);
+    this.shake = Math.min(22, this.shake + shakeAmt);
     this.burst(this.player.x - nx * 12, this.player.y - ny * 12, 6, '#ff4d6d', 130);
     this.spawnFloat(
       this.player.x - nx * 20,
@@ -724,6 +780,71 @@ export class Game {
       { size: 25, life: 1.0 },
     );
     this.hooks.onPlayerHit();
+  }
+
+  /**
+   * Holds a preferred distance instead of closing to contact range: too far
+   * out and it closes in, too close and it backs off, right in the band and
+   * it strafes — which is what keeps a shooter from ever standing still
+   * long enough to feel like a turret.
+   */
+  private shooterVelocity(e: Enemy, dx: number, dy: number, dist: number, speed: number): [number, number] {
+    if (dist > SHOOTER.standoffRange + SHOOTER.standoffSlop) return [(dx / dist) * speed, (dy / dist) * speed];
+    if (dist < SHOOTER.standoffRange - SHOOTER.standoffSlop) return [-(dx / dist) * speed, -(dy / dist) * speed];
+    return [(-dy / dist) * speed * e.strafeSign, (dx / dist) * speed * e.strafeSign];
+  }
+
+  /**
+   * `shootCooldown` doubles as the fire timer and the visible wind-up the
+   * renderer draws as a growing ring (SHOOTER.telegraph) — it only ever
+   * ticks down while the shooter can actually see and reach the player, so
+   * the telegraph never lies about a shot that isn't coming.
+   */
+  private updateShooterFire(e: Enemy, dx: number, dy: number, dist: number, dt: number): void {
+    const eligible = dist <= SHOOTER.engageRange && !this.segmentBlocked(e.x, e.y, this.player.x, this.player.y);
+    if (!eligible) {
+      e.shootCooldown = SHOOTER.cooldown;
+      return;
+    }
+    e.shootCooldown = Math.max(0, e.shootCooldown - dt);
+    if (e.shootCooldown > 0) return;
+    this.fireEnemyBolt(e, dx / dist, dy / dist);
+    e.shootCooldown = SHOOTER.cooldown;
+  }
+
+  private fireEnemyBolt(e: Enemy, dirX: number, dirY: number): void {
+    const b = this.enemyBolts.obtain();
+    if (!b) return;
+    b.x = e.x + dirX * (e.radius + 6);
+    b.y = e.y + dirY * (e.radius + 6);
+    b.vx = dirX * SHOOTER.projectileSpeed;
+    b.vy = dirY * SHOOTER.projectileSpeed;
+    b.life = 3;
+    // Reuses the same per-enemy damage value contact() would deal — one
+    // number for "how much this kind hurts you," whether by touch or by shot.
+    b.damage = e.damage;
+    this.burst(b.x, b.y, 4, e.color, 90);
+  }
+
+  private updateEnemyBolts(dt: number): void {
+    const hitRadiusSq = (PLAYER.halfSize + SHOOTER.projectileRadius) ** 2;
+    for (const b of this.enemyBolts.items) {
+      if (!b.active) continue;
+      b.x += b.vx * dt;
+      b.y += b.vy * dt;
+      b.life -= dt;
+      if (b.life <= 0 || Math.abs(b.x) > WORLD.halfSize || Math.abs(b.y) > WORLD.halfSize || this.pointInObstacle(b.x, b.y)) {
+        b.active = false;
+        continue;
+      }
+      const dx = this.player.x - b.x;
+      const dy = this.player.y - b.y;
+      if (dx * dx + dy * dy <= hitRadiusSq) {
+        b.active = false;
+        const len = Math.hypot(b.vx, b.vy) || 1;
+        this.damagePlayer(b.damage, b.vx / len, b.vy / len, 6);
+      }
+    }
   }
 
   // ------------------------------------------------------------------ weapon
