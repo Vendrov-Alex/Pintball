@@ -3,11 +3,14 @@ import { SplashScreen } from '@capacitor/splash-screen';
 import { StatusBar, Style } from '@capacitor/status-bar';
 
 import { preloadAds } from './core/ads';
+import { isAccountFeatureAvailable, onAccountChange, preloadAuth } from './core/auth';
 import { setAudioEnabled, sfx, unlockAudio } from './core/audio';
 import { music } from './core/music';
 import * as haptics from './core/haptics';
 import { isNative } from './core/platform';
-import { flushProfile, getProfile, initProfile, onProfileChange, setSetting } from './meta/profile';
+import { getProfile, initProfile, onProfileChange, setSetting } from './meta/profile';
+import { flushCloudSync, initCloudSync } from './meta/cloudSync';
+import { AccountModal } from './ui/accountModal';
 import { Battle } from './ui/battle';
 import { formatGold, onTap, qs } from './ui/dom';
 import { Pager } from './ui/pager';
@@ -47,6 +50,7 @@ async function boot(): Promise<void> {
           <span class="wallet__value">0</span>
         </div>
         <div class="topbar__tools">
+          ${isAccountFeatureAvailable() ? '<button class="icon-btn" type="button" data-account aria-label="Account">☺</button>' : ''}
           <button class="icon-btn" type="button" data-toggle="sound" aria-label="Toggle sound">♪</button>
           <button class="icon-btn" type="button" data-toggle="haptics" aria-label="Toggle vibration">≋</button>
         </div>
@@ -74,9 +78,24 @@ async function boot(): Promise<void> {
   const battle = new Battle(() => {
     pager.setLocked(false);
     refreshAll();
-    void flushProfile();
+    void flushCloudSync();
   });
   document.body.appendChild(battle.root);
+
+  // The account button only exists in the DOM when a Firebase project is
+  // actually configured (see core/firebaseConfig.ts) — nothing to wire up
+  // otherwise.
+  const accountBtn = app.querySelector<HTMLButtonElement>('[data-account]');
+  if (accountBtn) {
+    const accountModal = new AccountModal();
+    document.body.appendChild(accountModal.root);
+    onTap(accountBtn, () => {
+      sfx.ui();
+      accountModal.open();
+    });
+    onAccountChange((user) => accountBtn.classList.toggle('is-signed-in', user !== null));
+  }
+  initCloudSync();
 
   function startBattle(): void {
     unlockAudio();
@@ -137,11 +156,12 @@ async function boot(): Promise<void> {
     });
 
     void App.addListener('appStateChange', ({ isActive }) => {
-      if (!isActive) void flushProfile();
+      if (!isActive) void flushCloudSync();
     });
   }
 
   preloadAds();
+  preloadAuth();
   document.body.classList.add('is-ready');
 }
 

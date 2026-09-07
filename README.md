@@ -32,6 +32,29 @@ Swipe left/right, or tap the dots at the bottom.
 | 2 | **Upgrade** | Permanent, gold-bought upgrades: Attack, Attack Speed, Range, Health, Magnet, Speed. (More Hands is in-run only — see the level-up table below.) |
 | 3 | **Shop**    | Gold packs unlocked by watching a rewarded video ad. |
 
+## Optional account sign-in
+
+Guest play is the default and needs nothing — every feature above works with
+zero setup. A small account icon in the top bar (only present once a real
+Firebase project is wired in — see below) lets a player sign in with Google,
+Apple or Facebook to carry gold and upgrades to a second device. It's genuinely
+optional: declining, or never opening it, changes nothing about the game.
+
+The client side of this — `src/core/auth.ts`, `src/meta/cloudSync.ts`,
+`src/ui/accountModal.ts` — is fully built and currently switched off, because
+`src/core/firebaseConfig.ts` has no real Firebase project behind it yet.
+**[`docs/AUTH_SETUP.md`](docs/AUTH_SETUP.md)** is the checklist for creating one
+and turning the feature on; none of those steps can happen from a coding
+session; they need your own Google/Apple/Facebook developer accounts.
+
+Both Firebase's Auth SDK and the native sign-in plugin are dynamically
+imported, not loaded up front — most players never open the account screen,
+and the app's initial JS payload doesn't grow to carry an SDK most of them
+will never touch. Confirmed with a network trace, not just by reading the code:
+zero Firebase requests fire on a normal page load. The one-file share-link
+build (`npm run build:web`) excludes the feature entirely rather than paying to
+inline it — see the header comment in `src/core/auth.artifact-stub.ts`.
+
 ## How a run works
 
 - **3:00 on the clock**, split into nine 20-second waves that get denser and meaner.
@@ -167,14 +190,20 @@ Full submission checklist, ad configuration and privacy answers:
 ```
 src/
   main.ts              app bootstrap, native wiring, back button
-  core/                storage, audio synthesis, haptics, ads, platform checks
+  core/
+    storage.ts, audio.ts, music.ts, haptics.ts, ads.ts, platform.ts
+    auth.ts             optional Google/Apple/Facebook sign-in (off until configured)
+    firebaseConfig.ts   ← the one file that turns account sign-in on
+    auth.artifact-stub.ts   no-op stand-in aliased in for the share-link build
   game/
     config.ts          ← every tunable number
     engine.ts          simulation: spawning, targeting, collisions, levelling
     renderer.ts        canvas drawing
     upgrades.ts        level-up card generation
     pool.ts, grid.ts   object pools and the spatial hash
-  meta/                persistent profile, permanent upgrade maths
+  meta/
+    profile.ts          persistent profile, permanent upgrade maths
+    cloudSync.ts         Firestore reconciliation for signed-in accounts
   ui/                  swipe pager, three screens, battle HUD and modals
 scripts/
   simulate.mjs         headless QA + balance harness

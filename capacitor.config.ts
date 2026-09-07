@@ -31,6 +31,16 @@ const config: CapacitorConfig = {
       backgroundColor: '#07090f',
       overlaysWebView: true,
     },
+    // Native Google/Apple/Facebook sign-in (src/core/auth.ts) is inert without
+    // this: the plugin's default `providers` is an empty array, and on
+    // Android/iOS specifically (unlike the web fallback) it won't load a
+    // native provider that isn't listed here, even once real Firebase
+    // credentials exist. See docs/AUTH_SETUP.md for the rest of what those
+    // credentials need.
+    FirebaseAuthentication: {
+      skipNativeAuth: false,
+      providers: ['google.com', 'apple.com', 'facebook.com'],
+    },
   },
 };
 

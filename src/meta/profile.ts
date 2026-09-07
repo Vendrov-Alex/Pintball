@@ -26,6 +26,15 @@ export interface Profile {
   /** Rewarded-ad claims, reset every calendar day. */
   ads: { day: string; counts: Record<string, number> };
   settings: { sound: boolean; haptics: boolean };
+  /**
+   * Epoch ms of the last change, local or from the cloud. This is how an
+   * optional cloud sync (see meta/cloudSync.ts) decides which copy of the
+   * profile is newer when reconciling two devices — last-write-wins on the
+   * whole document, not a field-by-field merge. Field merging looks safer but
+   * silently breaks for spendable gold: it only ever increases, so a naive
+   * merge would "un-spend" a purchase made on the other device.
+   */
+  updatedAt: number;
 }
 
 function today(): string {
@@ -41,6 +50,7 @@ function defaultProfile(): Profile {
     stats: { runs: 0, wins: 0, bestKills: 0, bestLevel: 1, bestSurvivedSeconds: 0, totalGoldEarned: 0 },
     ads: { day: today(), counts: {} },
     settings: { sound: true, haptics: true },
+    updatedAt: 0,
   };
 }
 
@@ -59,6 +69,7 @@ function hydrate(raw: string): Profile {
     stats: { ...base.stats, ...(parsed.stats ?? {}) },
     ads: { ...base.ads, ...(parsed.ads ?? {}) },
     settings: { ...base.settings, ...(parsed.settings ?? {}) },
+    updatedAt: Number.isFinite(parsed.updatedAt) ? (parsed.updatedAt as number) : 0,
     version: PROFILE_VERSION,
   };
   // Clamp anything a tampered save could have inflated past the design limits.
@@ -94,12 +105,26 @@ export function onProfileChange(fn: (p: Profile) => void): () => void {
 
 /** Debounced write-behind: the UI stays synchronous, the disk catches up. */
 function commit(): void {
+  profile.updatedAt = Date.now();
   for (const fn of listeners) fn(profile);
   if (flushTimer !== null) clearTimeout(flushTimer);
   flushTimer = window.setTimeout(() => {
     flushTimer = null;
     void save(STORAGE_KEY, JSON.stringify(profile));
   }, 250);
+}
+
+/**
+ * Swaps in a whole profile from elsewhere — the one call cloudSync.ts needs
+ * when the cloud copy turns out to be the newer one. Goes through the same
+ * hydrate() a stored save does, so a malformed cloud document degrades the
+ * same safe way a corrupted local one does, and listeners/local storage stay
+ * in sync with what just landed.
+ */
+export function replaceProfile(next: Profile): void {
+  profile = hydrate(JSON.stringify(next));
+  for (const fn of listeners) fn(profile);
+  void save(STORAGE_KEY, JSON.stringify(profile));
 }
 
 export function flushProfile(): Promise<void> {

@@ -35,6 +35,15 @@ customising native code (signing config, ad IDs, permissions).
 
 ## 3. Android (Google Play)
 
+**WebView overscroll** — `android/app/src/main/java/.../MainActivity.java` (or
+wherever Capacitor generates the bridge activity): call
+`getBridge().getWebView().setOverScrollMode(android.webkit.WebView.OVER_SCROLL_NEVER);`
+after the bridge is set up. The game already fights mobile pull-to-refresh at the
+JS/CSS layer (`overscroll-behavior`, a non-passive `touchmove` guard on the
+joystick), but Android's native WebView has its own separate overscroll glow/
+bounce that those don't reach — this is the one piece that needs a native touch
+once `npx cap add android` has generated the project.
+
 **Manifest** — `android/app/src/main/AndroidManifest.xml`:
 
 - Lock orientation on the main activity: `android:screenOrientation="portrait"`.
@@ -176,6 +185,17 @@ consoles. Both stores reject submissions with an unreachable policy link.
 - [ ] `npm run build` is clean and `npm run qa` reports no console errors
 - [ ] Privacy policy URL live and reachable without a login
 - [ ] Screenshots contain no placeholder text and no debug overlay
+- [ ] If account sign-in is enabled (see `docs/AUTH_SETUP.md`): `google-services.json`
+      is in `android/app/`, `GoogleService-Info.plist` is in `ios/App/App/` **and**
+      added to the Xcode project (not just the folder), and the Firestore security
+      rules from that doc are the ones actually live in the Firebase console —
+      not the default test-mode rules, which lock everyone out after 30 days
+- [ ] If Sign in with Apple is enabled: the "Sign in with Apple" capability is
+      added in Xcode (Signing & Capabilities), separately from the Firebase
+      console configuration — both are required, neither implies the other
+- [ ] Privacy policy and both stores' data-safety forms mention the account
+      provider (Google/Apple/Facebook) if sign-in is enabled — it's a new,
+      real third party in that case, alongside AdMob
 
 ## 7. After launch
 

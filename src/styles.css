@@ -136,6 +136,11 @@ button {
   opacity: 0.5;
 }
 
+.icon-btn.is-signed-in {
+  border-color: color-mix(in srgb, var(--good) 55%, var(--line));
+  color: var(--good);
+}
+
 /* ------------------------------------------------------------------- pager */
 
 .pager {
@@ -550,6 +555,7 @@ button {
   z-index: 40;
   background: var(--bg);
   overflow: hidden;
+  overscroll-behavior: none;
 }
 
 .battle__canvas {
@@ -558,11 +564,13 @@ button {
   height: 100%;
   /* The canvas handles its own pointer input; the browser must not scroll. */
   touch-action: none;
+  overscroll-behavior: none;
 }
 
 .hud {
   position: absolute;
   inset: 0;
+  overscroll-behavior: none;
   padding: calc(10px + var(--safe-top)) calc(14px + var(--safe-right)) calc(12px + var(--safe-bottom))
     calc(14px + var(--safe-left));
   pointer-events: none;
@@ -1009,6 +1017,145 @@ button {
 }
 
 /* Landscape / tablet: keep the menus from stretching into a wall of text. */
+/* ------------------------------------------------------------- account modal */
+
+.account__note {
+  margin: 0 0 16px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+  text-align: center;
+}
+
+.account__providers {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.account__provider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 50px;
+  padding: 0 16px;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: var(--panel-strong);
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.account__provider:disabled {
+  opacity: 0.5;
+}
+
+.account__provider-icon {
+  width: 22px;
+  height: 22px;
+  flex: none;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.account__provider-icon::before {
+  content: '';
+}
+
+.account__provider-icon--google {
+  background: #fff;
+  color: #4285f4;
+}
+.account__provider-icon--google::before {
+  content: 'G';
+}
+
+.account__provider-icon--apple {
+  background: #fff;
+  color: #0b0b0f;
+}
+.account__provider-icon--apple::before {
+  /* The real Apple glyph is a private-use codepoint that only renders in
+     Apple's own fonts — blank everywhere else. A plain letter matches the G
+     and f used for the other two providers and always renders. */
+  content: 'A';
+}
+
+.account__provider-icon--facebook {
+  background: #1877f2;
+  color: #fff;
+}
+.account__provider-icon--facebook::before {
+  content: 'f';
+}
+
+.account__status {
+  min-height: 16px;
+  margin: 0 0 12px;
+  color: var(--accent);
+  font-size: 12px;
+  text-align: center;
+}
+
+.account__status:empty {
+  margin: 0;
+}
+
+.account__later {
+  width: 100%;
+}
+
+.account__profile {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px;
+  border-radius: 14px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  margin-bottom: 14px;
+}
+
+.account__avatar {
+  width: 48px;
+  height: 48px;
+  flex: none;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.account__avatar--fallback {
+  display: grid;
+  place-items: center;
+  background: var(--accent-dim);
+  color: var(--accent);
+  font-size: 20px;
+  font-weight: 800;
+}
+
+.account__identity {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.account__identity strong {
+  font-size: 16px;
+}
+
+.account__identity span {
+  color: var(--muted);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 @media (min-width: 620px) {
   .screen__body {
     max-width: 560px;

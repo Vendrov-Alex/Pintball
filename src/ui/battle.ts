@@ -224,6 +224,24 @@ export class Battle {
     this.canvas.addEventListener('pointerup', release);
     this.canvas.addEventListener('pointercancel', release);
 
+    // Belt and suspenders against mobile pull-to-refresh / rubber-band scroll
+    // while dragging the stick. `touch-action: none` on the canvas is supposed
+    // to be enough on its own, but browsers are inconsistent about honouring it
+    // — especially inside an iframe, which is exactly how the game is served
+    // from an Artifact preview link — so drags could leak into the page's own
+    // scroll and pull the browser chrome down mid-gesture. An explicit
+    // non-passive touchmove listener is the standard, reliable fix for this
+    // bug class; it must be `{ passive: false }` or preventDefault() is a
+    // silent no-op. Scoped to an active drag only, so it never touches the
+    // Upgrade/Shop screens' own scrolling.
+    document.addEventListener(
+      'touchmove',
+      (ev) => {
+        if (this.stickPointer !== null) ev.preventDefault();
+      },
+      { passive: false },
+    );
+
     // Desktop testing. Harmless on device, and it makes `npm run dev` usable.
     const keys = new Set<string>();
     const applyKeys = (): void => {
