@@ -216,6 +216,10 @@ const simulateRun = async (page, meta, stage) =>
             : 'damage';
           picked.push(next);
           game.applyChoice(next);
+          // The real UI now holds a beat after a pick (Game.resume() waits
+          // for a touch) so the player can see the field before it moves
+          // again; the pilot has nothing to look at, so it resumes at once.
+          game.resume();
           continue;
         }
         if (steps % 6 === 0) steer();
@@ -290,8 +294,10 @@ async function main() {
     await page.evaluate(() => {
       const g = window.__game;
       for (let i = 0; i < 60 * 25; i++) {
-        if (g.phase === 'levelup') g.applyChoice('fireRate');
-        else if (g.phase === 'running') g.update(1 / 60);
+        if (g.phase === 'levelup') {
+          g.applyChoice('fireRate');
+          g.resume();
+        } else if (g.phase === 'running') g.update(1 / 60);
         else break;
       }
       // The harness bypasses the UI, so the card the engine opened is still in

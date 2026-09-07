@@ -124,6 +124,13 @@ inline it — see the header comment in `src/core/auth.artifact-stub.ts`.
   time to 100% off a single pick. The reduced share and the 3-pick cap (four
   directions at most) bring the ladder back to its original shape while keeping
   the line clearly worth taking against a crowd, which is the point of it.
+- **Picking a card doesn't resume the fight on its own.** The pick applies
+  instantly (the HUD updates right away) but the sim stays frozen — a "Tap to
+  continue" hint replaces the countdown — until the player actually touches
+  the screen again (`Game.resume()`, called from the first pointerdown or
+  keypress after a pick). Auto-resuming the instant a card closed meant
+  getting hit by something you had no chance to see coming; this is the beat
+  that lets you look at the field you're about to dive back into.
 - At 3:00 the **boss** arrives: x10 HP, contact damage and gold of a regular bot.
   An arrow pins it to the screen edge whenever it is off camera. It starts slower
   than you and **enrages** after thirty seconds, accelerating until it is

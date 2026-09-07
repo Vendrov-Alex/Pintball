@@ -60,7 +60,7 @@ const MAX_PICKUPS = 640;
 // generous headroom for a screen full of them, not sized for every enemy.
 const MAX_ENEMY_BOLTS = 80;
 
-export type Phase = 'idle' | 'running' | 'levelup' | 'victory' | 'ended';
+export type Phase = 'idle' | 'running' | 'levelup' | 'paused' | 'victory' | 'ended';
 
 export interface EngineHooks {
   onLevelUp(choices: UpgradeChoice[], level: number): void;
@@ -339,6 +339,14 @@ export class Game {
     return need === null ? 1 : clamp(this.xpThisLevel / need, 0, 1);
   }
 
+  /**
+   * Applying the pick itself is instant — the stat updates right away so the
+   * HUD reflects it immediately — but simulation stays frozen afterward
+   * (`'paused'`, not `'running'`) until resume() is called. Auto-resuming the
+   * instant a card is dismissed threw the player back into a crowd they had
+   * no chance to look at first; this is the beat that lets them actually see
+   * what they just picked and where the danger is before diving back in.
+   */
   applyChoice(id: RunUpgradeId): void {
     const before = this.stats.maxHp;
     this.picks[id] = Math.min(RUN_UPGRADE_LINES[id].maxPicks, this.picks[id] + 1);
@@ -352,7 +360,13 @@ export class Game {
     }
     if (id === 'range' || id === 'magnet') this.rangePulse = 1;
 
-    this.phase = 'running';
+    this.phase = 'paused';
+  }
+
+  /** Leaves the post-level-up pause. A no-op from any other phase, so the
+   *  UI can call it unconditionally on every touch without checking first. */
+  resume(): void {
+    if (this.phase === 'paused') this.phase = 'running';
   }
 
   private gainXp(amount: number): void {

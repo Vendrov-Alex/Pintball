@@ -868,6 +868,12 @@ button {
   font-size: 34px;
 }
 
+.banner--pause {
+  color: var(--accent);
+  font-size: 20px;
+  animation: pulse 1400ms ease-in-out infinite;
+}
+
 .chip--gold.is-counting {
   animation: coin-pulse 420ms ease-in-out infinite;
   border-color: color-mix(in srgb, var(--gold) 60%, var(--line));

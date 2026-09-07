@@ -193,6 +193,7 @@ export class Battle {
     };
 
     this.canvas.addEventListener('pointerdown', (ev) => {
+      this.tryResume();
       if (this.stickPointer !== null) return;
       this.stickPointer = ev.pointerId;
       this.canvas.setPointerCapture(ev.pointerId);
@@ -261,6 +262,7 @@ export class Battle {
     };
     window.addEventListener('keydown', (ev) => {
       if (!this.active) return;
+      this.tryResume();
       keys.add(ev.key.toLowerCase());
       applyKeys();
     });
@@ -353,10 +355,28 @@ export class Battle {
     }
   }
 
-  private showBanner(text: string, modifier: string): void {
+  /** `persistent` skips the auto-hide timeout — used for the post-level-up
+   *  "Tap to continue" hint, which has to stay up for as long as the player
+   *  takes to actually touch the screen, not a fixed 1.4s. */
+  private showBanner(text: string, modifier: string, persistent = false): void {
     this.banner.textContent = text;
     this.banner.className = `banner ${modifier} is-visible`;
-    window.setTimeout(() => this.banner.classList.remove('is-visible'), 1400);
+    if (!persistent) window.setTimeout(() => this.banner.classList.remove('is-visible'), 1400);
+  }
+
+  /**
+   * Ends the post-level-up freeze the instant the player touches the screen
+   * or presses a key — safe to call unconditionally on every input, since
+   * Game.resume() is itself a no-op outside the 'paused' phase.
+   */
+  private tryResume(): void {
+    if (this.game.phase !== 'paused') return;
+    this.game.resume();
+    this.banner.classList.remove('is-visible');
+    // The pause can run for as long as the player takes to look around;
+    // don't let that stretch read as a frame-loop time jump once it ends.
+    this.lastFrame = performance.now();
+    this.accumulator = 0;
   }
 
   private onBossSpawn(): void {
@@ -404,9 +424,10 @@ export class Battle {
         haptics.tap();
         this.levelModal.hidden = true;
         this.game.applyChoice(btn.dataset.id as UpgradeChoice['id']);
-        // A card can be open for a while; do not let the pause become a time jump.
-        this.lastFrame = performance.now();
-        this.accumulator = 0;
+        // The engine stays paused after the pick (Game.applyChoice leaves it
+        // in 'paused', not 'running') so the player has a moment to see the
+        // field before diving back in — tryResume() ends it on first touch.
+        this.showBanner('Tap to continue', 'banner--pause', true);
       });
     });
 
