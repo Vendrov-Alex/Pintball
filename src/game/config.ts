@@ -24,8 +24,16 @@ export const PLAYER = {
   range: 170,
   bulletSpeed: 560,
   bulletRadius: 5,
-  /** How long a bullet lives if it never hits anything, in seconds. */
-  bulletLife: 2.5,
+  /**
+   * How long a bullet lives if it never hits anything, in seconds. A miss now
+   * flies until it leaves the map or hits a wall rather than despawning at the
+   * firing radius — that radius only ever gated which bots the turret could
+   * pick as a target, not how far the resulting shot travels. This is sized to
+   * comfortably outlast the trip from the middle of the map to a wall
+   * (WORLD.halfSize / bulletSpeed ≈ 3.6s); it exists as a safety cap, not the
+   * thing that normally ends a miss.
+   */
+  bulletLife: 4.5,
   /** Seconds of invulnerability after taking a hit (prevents multi-hit spikes). */
   iframes: 0.22,
   /** Top movement speed in vu/s. Compare with ENEMY_BASE.speed and the kind multipliers. */
@@ -68,6 +76,53 @@ export const SPAWN_LEAD_BIAS = 0.58;
 
 /** Bots this far behind the player (as a multiple of the spawn radius) are recycled. */
 export const DESPAWN_FACTOR = 2.1;
+
+/**
+ * The map is a real, finite square, not an infinite plane — a fence you can
+ * actually run into. At base movement speed the centre is about 16 seconds
+ * from the nearest wall (less once Sprint is upgraded), so the boundary is
+ * reachable within a run if you commit to running in one direction, not a
+ * formality — but 2000 was tight enough, once obstacles were also in play,
+ * to measurably change the outcome for an invested build that used to win
+ * outright (two-thirds-upgraded went from a 100% to a 60% win rate on the
+ * balance harness); this is the smallest size that gave that back.
+ */
+export const WORLD = {
+  halfSize: 2500,
+  /** Visual thickness of the fence line, in vu — not a collision surface. */
+  fenceWidth: 14,
+} as const;
+
+/** A static rectangle neither the square, a bot, nor a bullet can pass through. */
+export interface Obstacle {
+  x: number;
+  y: number;
+  halfW: number;
+  halfH: number;
+}
+
+/**
+ * Hand-placed, not generated: a level, however small, reads as designed rather
+ * than random, and a fixed layout means a screenshot or a returning player's
+ * mental map of "there's a wall near the north gate" stays true from run to
+ * run. The centre is left clear so the first several seconds of a run —
+ * before the wave has built up enough to make cover matter — aren't spent
+ * puzzling around furniture.
+ */
+export const OBSTACLES: readonly Obstacle[] = [
+  { x: 620, y: 260, halfW: 190, halfH: 42 },
+  { x: -560, y: 640, halfW: 42, halfH: 170 },
+  { x: 880, y: -580, halfW: 90, halfH: 90 },
+  { x: -760, y: -420, halfW: 220, halfH: 46 },
+  { x: 1420, y: 780, halfW: 46, halfH: 200 },
+  { x: -1380, y: 520, halfW: 110, halfH: 110 },
+  { x: 240, y: -1300, halfW: 200, halfH: 50 },
+  { x: -320, y: 1360, halfW: 50, halfH: 210 },
+  { x: 1300, y: -1280, halfW: 130, halfH: 130 },
+  { x: -1260, y: -1080, halfW: 190, halfH: 60 },
+  { x: 1680, y: 60, halfW: 60, halfH: 220 },
+  { x: -1700, y: -140, halfW: 220, halfH: 60 },
+] as const;
 
 /**
  * In-run level-up lines. Each pick multiplies the stat by (1 + step), up to

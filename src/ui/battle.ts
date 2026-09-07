@@ -1,7 +1,7 @@
 import { sfx, unlockAudio } from '../core/audio';
 import { music } from '../core/music';
 import * as haptics from '../core/haptics';
-import { JOYSTICK, MAX_LEVEL, RUN_DURATION, WAVES, WAVE_SECONDS } from '../game/config';
+import { JOYSTICK, MAX_LEVEL, OBSTACLES, RUN_DURATION, WAVES, WAVE_SECONDS, WORLD } from '../game/config';
 import { Game } from '../game/engine';
 import { Renderer, type JoystickView } from '../game/renderer';
 import type { RunResult } from '../game/types';
@@ -127,6 +127,10 @@ export class Battle {
     if (import.meta.env.DEV) {
       (window as unknown as Record<string, unknown>).__battle = this;
       (window as unknown as Record<string, unknown>).__game = this.game;
+      // Read by scripts/simulate.mjs's autopilot so it can steer around walls
+      // and obstacles instead of measuring a pilot blind to geometry it can't see.
+      (window as unknown as Record<string, unknown>).__OBSTACLES = OBSTACLES;
+      (window as unknown as Record<string, unknown>).__WORLD = WORLD;
     }
     this.bindMovement();
     window.addEventListener('resize', () => this.layout());

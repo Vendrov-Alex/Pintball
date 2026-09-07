@@ -7,10 +7,11 @@ import type { Enemy } from './types';
  * queries. Brute force is O(n^2) and at 250+ bots that is ~60k distance checks a
  * frame; the grid keeps it near-linear.
  *
- * The world is unbounded now that the player moves, so cells are addressed by a
- * multiplicative hash rather than a packed coordinate. Two distant cells can share
- * a bucket; that only costs a few extra distance checks, because every caller
- * verifies the real distance anyway.
+ * The playable square (WORLD.halfSize in config.ts) is large enough, and the
+ * player moves through enough of it, that cells are addressed by a
+ * multiplicative hash rather than a packed coordinate — no fixed-size array to
+ * outgrow. Two distant cells can share a bucket; that only costs a few extra
+ * distance checks, because every caller verifies the real distance anyway.
  */
 export class SpatialGrid {
   private readonly cells = new Map<number, Enemy[]>();

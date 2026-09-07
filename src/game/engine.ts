@@ -7,6 +7,7 @@ import {
   ENEMY_SCALING,
   LEVEL_UP_HEAL,
   MAX_LEVEL,
+  OBSTACLES,
   PICKUP,
   PLAYER,
   RUN_DURATION,
@@ -15,9 +16,11 @@ import {
   VIEW_SHORT_SIDE,
   WAVES,
   WAVE_SECONDS,
+  WORLD,
   XP_TABLE,
   type EnemyKind,
   type EnemyKindId,
+  type Obstacle,
 } from './config';
 import { SpatialGrid } from './grid';
 import { Pool } from './pool';
@@ -32,7 +35,9 @@ import {
 } from './upgrades';
 
 const MAX_ENEMIES = 340;
-const MAX_BULLETS = 160;
+// Missed shots used to die at the firing radius; now they fly until they leave
+// the map or hit a wall, so more are in the air at any one instant.
+const MAX_BULLETS = 260;
 const MAX_PARTICLES = 420;
 // Damage numbers fire far more often than gold/bounty text ever did — a maxed
 // multi-hand build can land a dozen hits a second — so this pool is sized for
@@ -75,9 +80,11 @@ export class Game {
   view: ViewInfo = { cssW: 1, cssH: 1, scale: 1, worldW: 1, worldH: 1, spawnRx: 1, spawnRy: 1 };
 
   /**
-   * The square's position in world space. The world is unbounded: the camera
-   * follows the player and bots are spawned and recycled relative to it, which is
-   * what makes a survivor-style run feel open instead of arena-shaped.
+   * The square's position in world space. The camera follows the player and
+   * bots are spawned and recycled relative to it, which is what makes a
+   * survivor-style run feel open rather than arena-shaped — but the world
+   * itself is a real, finite square (WORLD.halfSize in config.ts): the fence
+   * and its obstacles are physical, not scenery.
    */
   readonly player: Vec = { x: 0, y: 0 };
   readonly velocity: Vec = { x: 0, y: 0 };
@@ -118,7 +125,7 @@ export class Game {
     speed: 50, damage: 1, gold: 1, xp: 1, kind: 'grunt', color: '#fff', hitTimer: 0, flash: 0, isBoss: false,
   }));
   readonly bullets = new Pool<Bullet>(MAX_BULLETS, () => ({
-    active: false, x: 0, y: 0, vx: 0, vy: 0, life: 0, travel: 0, damage: 1,
+    active: false, x: 0, y: 0, vx: 0, vy: 0, life: 0, damage: 1,
   }));
   readonly particles = new Pool<Particle>(MAX_PARTICLES, () => ({
     active: false, x: 0, y: 0, vx: 0, vy: 0, life: 0, maxLife: 1, size: 3, color: '#fff',
@@ -337,6 +344,100 @@ export class Game {
     this.velocity.y = lerp(this.velocity.y, targetVy, t);
     this.player.x += this.velocity.x * dt;
     this.player.y += this.velocity.y * dt;
+    this.constrainToWorld(this.player, PLAYER.halfSize * 1.15);
+  }
+
+  // ------------------------------------------------------------- world bounds
+
+  /**
+   * Pushes a point out of every obstacle it overlaps, then clamps it inside the
+   * outer fence. Shared by the player, every bot, and a fresh spawn point — a
+   * bot that rolled a spawn location inside a wall gets shoved clear by the
+   * exact same code that keeps it from walking into one later.
+   */
+  private constrainToWorld(target: { x: number; y: number }, radius: number): void {
+    for (const o of OBSTACLES) {
+      const closestX = clamp(target.x, o.x - o.halfW, o.x + o.halfW);
+      const closestY = clamp(target.y, o.y - o.halfH, o.y + o.halfH);
+      const dx = target.x - closestX;
+      const dy = target.y - closestY;
+      const distSq = dx * dx + dy * dy;
+      if (distSq >= radius * radius) continue;
+
+      if (distSq > 1e-6) {
+        const dist = Math.sqrt(distSq);
+        const push = radius - dist;
+        target.x += (dx / dist) * push;
+        target.y += (dy / dist) * push;
+      } else {
+        // Dead centre of the rectangle (or exactly on an edge) — push out along
+        // whichever side has the least penetration rather than leaving a
+        // division by zero.
+        const left = target.x - (o.x - o.halfW);
+        const right = o.x + o.halfW - target.x;
+        const top = target.y - (o.y - o.halfH);
+        const bottom = o.y + o.halfH - target.y;
+        const min = Math.min(left, right, top, bottom);
+        if (min === left) target.x = o.x - o.halfW - radius;
+        else if (min === right) target.x = o.x + o.halfW + radius;
+        else if (min === top) target.y = o.y - o.halfH - radius;
+        else target.y = o.y + o.halfH + radius;
+      }
+    }
+
+    const bound = WORLD.halfSize - radius;
+    target.x = clamp(target.x, -bound, bound);
+    target.y = clamp(target.y, -bound, bound);
+  }
+
+  private pointInObstacle(x: number, y: number): boolean {
+    for (const o of OBSTACLES) {
+      if (x >= o.x - o.halfW && x <= o.x + o.halfW && y >= o.y - o.halfH && y <= o.y + o.halfH) return true;
+    }
+    return false;
+  }
+
+  /** True if any obstacle stands between the two points — used to keep the
+   *  turret from locking onto a bot it has no line to, and nothing else. */
+  private segmentBlocked(x1: number, y1: number, x2: number, y2: number): boolean {
+    for (const o of OBSTACLES) {
+      if (this.segmentIntersectsRect(x1, y1, x2, y2, o)) return true;
+    }
+    return false;
+  }
+
+  /** Liang-Barsky segment/rectangle clipping: true if the segment [P1,P2]
+   *  passes through the rectangle `o` anywhere along its length. */
+  private segmentIntersectsRect(x1: number, y1: number, x2: number, y2: number, o: Obstacle): boolean {
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const minX = o.x - o.halfW;
+    const maxX = o.x + o.halfW;
+    const minY = o.y - o.halfH;
+    const maxY = o.y + o.halfH;
+
+    let tMin = 0;
+    let tMax = 1;
+    const clipEdge = (p: number, q: number): boolean => {
+      if (p === 0) return q >= 0;
+      const r = q / p;
+      if (p < 0) {
+        if (r > tMax) return false;
+        if (r > tMin) tMin = r;
+      } else {
+        if (r < tMin) return false;
+        if (r < tMax) tMax = r;
+      }
+      return true;
+    };
+
+    return (
+      clipEdge(-dx, x1 - minX) &&
+      clipEdge(dx, maxX - x1) &&
+      clipEdge(-dy, y1 - minY) &&
+      clipEdge(dy, maxY - y1) &&
+      tMin <= tMax
+    );
   }
 
   // ---------------------------------------------------------------- spawning
@@ -428,6 +529,10 @@ export class Game {
     e.hitTimer = 0;
     e.flash = 0;
     e.isBoss = false;
+    // A spawn point computed from the player's position and the viewport can
+    // land outside the fence or inside a wall when the player is near one;
+    // shove it back in exactly the way movement already does every frame.
+    this.constrainToWorld(e, e.radius);
   }
 
   private spawnBoss(): void {
@@ -450,6 +555,7 @@ export class Game {
     e.hitTimer = 0;
     e.flash = 0;
     e.isBoss = true;
+    this.constrainToWorld(e, e.radius);
 
     this.boss = e;
     this.bossActive = true;
@@ -524,6 +630,7 @@ export class Game {
 
       e.x += (vx + e.kx) * dt;
       e.y += (vy + e.ky) * dt;
+      this.constrainToWorld(e, e.radius);
 
       if (dist < e.radius + contactPad) this.contact(e, dx / dist, dy / dist);
     }
@@ -576,7 +683,12 @@ export class Game {
     const found: { e: Enemy; d: number }[] = [];
     this.grid.query(this.player.x, this.player.y, range, (e) => {
       const d = Math.hypot(e.x - this.player.x, e.y - this.player.y);
-      if (d <= range + e.radius) found.push({ e, d });
+      if (d > range + e.radius) return;
+      // A bot standing behind a wall is a bot the turret has no shot at — this
+      // is what makes cover a real place to stand, not just a speed bump for
+      // an approaching bot that still gets shot through it.
+      if (this.segmentBlocked(this.player.x, this.player.y, e.x, e.y)) return;
+      found.push({ e, d });
     });
     found.sort((a, b) => a.d - b.d);
     found.length = Math.min(found.length, count);
@@ -624,21 +736,28 @@ export class Game {
     b.vx = (aimX / len) * PLAYER.bulletSpeed;
     b.vy = (aimY / len) * PLAYER.bulletSpeed;
     b.life = PLAYER.bulletLife;
-    b.travel = this.stats.range + 24;
     b.damage = this.stats.damage * damageShare;
   }
 
   private updateBullets(dt: number): void {
     for (const b of this.bullets.items) {
       if (!b.active) continue;
-      const step = Math.hypot(b.vx, b.vy) * dt;
       b.x += b.vx * dt;
       b.y += b.vy * dt;
       b.life -= dt;
-      b.travel -= step;
 
-      if (b.life <= 0 || b.travel <= 0) {
+      // A miss keeps flying until it leaves the map or hits a wall — the
+      // firing radius only ever gated which bot the turret could pick as a
+      // target, never how far the resulting shot travels. bulletLife is a
+      // safety cap, not the normal way a miss ends.
+      if (b.life <= 0 || Math.abs(b.x) > WORLD.halfSize || Math.abs(b.y) > WORLD.halfSize) {
         b.active = false;
+        continue;
+      }
+
+      if (this.pointInObstacle(b.x, b.y)) {
+        b.active = false;
+        this.burst(b.x, b.y, 4, '#a8b0c4', 90);
         continue;
       }
 

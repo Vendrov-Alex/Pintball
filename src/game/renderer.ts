@@ -1,5 +1,7 @@
-import { JOYSTICK, PICKUP, PLAYER } from './config';
+import { JOYSTICK, OBSTACLES, PICKUP, PLAYER, WORLD } from './config';
 import type { Game } from './engine';
+
+const clamp = (v: number, lo: number, hi: number): number => (v < lo ? lo : v > hi ? hi : v);
 
 /** Screen-space joystick state handed in by the battle UI, in css pixels. */
 export interface JoystickView {
@@ -75,9 +77,15 @@ export class Renderer {
 
   render(game: Game, time: number, joystick: JoystickView): void {
     const ctx = this.ctx;
-    const { scale } = game.view;
-    const camX = game.player.x;
-    const camY = game.player.y;
+    const { scale, worldW, worldH } = game.view;
+
+    // The camera follows the player but stops at the map's own edge, so
+    // standing at the fence shows the fence at the side of the screen instead
+    // of empty space beyond a boundary that's supposed to feel solid.
+    const boundX = Math.max(0, WORLD.halfSize - worldW / 2);
+    const boundY = Math.max(0, WORLD.halfSize - worldH / 2);
+    const camX = clamp(game.player.x, -boundX, boundX);
+    const camY = clamp(game.player.y, -boundY, boundY);
 
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     this.drawBackground(ctx, camX * scale, camY * scale);
@@ -90,6 +98,8 @@ export class Renderer {
     ctx.scale(scale, scale);
     ctx.translate(-camX, -camY);
 
+    this.drawFence(ctx);
+    this.drawObstacles(ctx);
     this.drawMagnetRing(ctx, game);
     this.drawRangeCircle(ctx, game, time);
     this.drawParticles(ctx, game);
@@ -101,8 +111,36 @@ export class Renderer {
 
     ctx.restore();
 
-    this.drawOffscreenMarkers(ctx, game);
+    this.drawOffscreenMarkers(ctx, game, camX, camY);
     if (joystick.active) this.drawJoystick(ctx, joystick);
+  }
+
+  /** The outer boundary. One stroke call — cheap enough to shadow-blur even
+   *  though it draws every frame, unlike the per-entity draws below it. */
+  private drawFence(ctx: CanvasRenderingContext2D): void {
+    const h = WORLD.halfSize;
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255, 47, 109, 0.65)';
+    ctx.lineWidth = WORLD.fenceWidth;
+    ctx.shadowColor = 'rgba(255, 47, 109, 0.55)';
+    ctx.shadowBlur = 30;
+    ctx.strokeRect(-h, -h, h * 2, h * 2);
+    ctx.restore();
+  }
+
+  private drawObstacles(ctx: CanvasRenderingContext2D): void {
+    for (const o of OBSTACLES) {
+      const g = ctx.createLinearGradient(0, o.y - o.halfH, 0, o.y + o.halfH);
+      g.addColorStop(0, '#3c4762');
+      g.addColorStop(1, '#20263a');
+      ctx.fillStyle = g;
+      ctx.strokeStyle = 'rgba(150, 168, 210, 0.4)';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.rect(o.x - o.halfW, o.y - o.halfH, o.halfW * 2, o.halfH * 2);
+      ctx.fill();
+      ctx.stroke();
+    }
   }
 
   private drawBackground(ctx: CanvasRenderingContext2D, camPxX: number, camPxY: number): void {
@@ -302,12 +340,12 @@ export class Renderer {
    * player can run away from the fight, losing track of the one thing that has to
    * die is a real failure state.
    */
-  private drawOffscreenMarkers(ctx: CanvasRenderingContext2D, game: Game): void {
+  private drawOffscreenMarkers(ctx: CanvasRenderingContext2D, game: Game, camX: number, camY: number): void {
     const boss = game.boss;
     if (!boss) return;
     const { scale } = game.view;
-    const dx = (boss.x - game.player.x) * scale;
-    const dy = (boss.y - game.player.y) * scale;
+    const dx = (boss.x - camX) * scale;
+    const dy = (boss.y - camY) * scale;
     const halfW = this.cssW / 2 - 34;
     const halfH = this.cssH / 2 - 34;
     if (Math.abs(dx) < halfW && Math.abs(dy) < halfH) return;

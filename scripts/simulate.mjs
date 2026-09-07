@@ -132,12 +132,44 @@ const simulateRun = async (page, meta) =>
           ly /= ll;
         }
 
+        // Wall/obstacle avoidance. Without this the pilot has no idea geometry
+        // exists and measures a pessimistic "walks straight into things" lower
+        // bound rather than anything close to how a sighted player moves —
+        // exactly the gap that made the first pass after adding obstacles read
+        // as a much harder game than it actually is. Repels only within a
+        // margin of the pilot's own body, at a strength that dominates the
+        // crowd/loot pull whenever it's active at all, so it never actually
+        // touches a wall while still leaving normal steering alone at range.
+        let wx = 0;
+        let wy = 0;
+        const margin = 90;
+        for (const o of window.__OBSTACLES || []) {
+          const cx = Math.max(o.x - o.halfW, Math.min(px, o.x + o.halfW));
+          const cy = Math.max(o.y - o.halfH, Math.min(py, o.y + o.halfH));
+          const dx = px - cx;
+          const dy = py - cy;
+          const d = Math.hypot(dx, dy);
+          if (d < margin && d > 1e-6) {
+            const w = (margin - d) / margin;
+            wx += (dx / d) * w;
+            wy += (dy / d) * w;
+          }
+        }
+        const world = window.__WORLD;
+        if (world) {
+          const edge = world.halfSize - margin;
+          if (px > edge) wx -= (px - edge) / margin;
+          if (px < -edge) wx += (-edge - px) / margin;
+          if (py > edge) wy -= (py - edge) / margin;
+          if (py < -edge) wy += (-edge - py) / margin;
+        }
+
         // Crowded: get out. Clear: go collect. 40% tangential either way, so the
         // pilot strafes around pressure instead of sprinting into the bots that
         // spawn ahead of it.
         const lootWeight = near >= 9 ? 0.35 : 0.95;
-        let dx = ax + lx * lootWeight - ay * 0.4;
-        let dy = ay + ly * lootWeight + ax * 0.4;
+        let dx = ax + lx * lootWeight - ay * 0.4 + wx * 3;
+        let dy = ay + ly * lootWeight + ax * 0.4 + wy * 3;
         const dl = Math.hypot(dx, dy);
         if (dl > 1e-6) {
           hx = dx / dl;

@@ -35,13 +35,8 @@ export interface Bullet {
   y: number;
   vx: number;
   vy: number;
+  /** Seconds left before the shot expires if it hits nothing — see PLAYER.bulletLife. */
   life: number;
-  /**
-   * Distance the bullet may still fly, in world units. The firing circle is a
-   * real boundary, and measuring it as a travel budget rather than as a distance
-   * from the player means running away does not delete your own shots.
-   */
-  travel: number;
   damage: number;
 }
 

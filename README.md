@@ -1,9 +1,10 @@
 # Roblaksim Survivor
 
 A three-minute wave-survival game for iOS and Android, in the Survivor.io mould.
-You are a square. You move with a floating thumbstick across an open, unbounded
-map while a horde chases you down. Your gun fires by itself at anything inside
-your firing circle. Survive the clock, then kill what arrives at the end of it.
+You are a square. You move with a floating thumbstick across a large, walled
+map — with obstacles to duck behind — while a horde chases you down. Your gun
+fires by itself at anything inside your firing circle it has a clear shot at.
+Survive the clock, then kill what arrives at the end of it.
 
 Built as a web game in TypeScript + Canvas 2D, wrapped for both stores with
 Capacitor. The whole thing is ~63 KB of JavaScript (22 KB gzipped) with no art or
@@ -60,15 +61,27 @@ inline it — see the header comment in `src/core/auth.artifact-stub.ts`.
 - **3:00 on the clock**, split into nine 20-second waves that get denser and meaner.
 - **You move.** Touch anywhere and a floating joystick appears under your thumb;
   drag past its edge and the base follows, so a long swipe never runs out of
-  stick. WASD and the arrow keys work for desktop testing. The map is unbounded
-  and the camera is locked to you — the scrolling grid is the only thing that
-  tells you the square is moving rather than the world.
-- The gun aims itself at the nearest bot. A dashed circle marks its boundary; the
-  gun only shoots inside it, and bullets carry a travel budget equal to the radius
-  so running away never deletes your own shots.
+  stick. WASD and the arrow keys work for desktop testing. The camera follows
+  you — the scrolling grid is the cue that the square is moving through the
+  world, not the other way round.
+- **The map is a real, finite square with a fence around it** (`WORLD.halfSize`
+  in `src/game/config.ts`), not an infinite plane — you, every bot, and the boss
+  all physically stop at it. The camera stops at it too: standing at the wall
+  shows the wall at the edge of the screen instead of empty space beyond it.
+- **A handful of hand-placed walls** (`OBSTACLES` in the same file) block
+  movement for the square and every bot alike, and block bullets and the
+  turret's own line of sight — a bot on the far side of one is a bot your gun
+  genuinely cannot see, not just one that has to walk the long way round. That
+  makes a wall real cover, not a speed bump: duck behind one when a wave is
+  thick and bots pile up on the other side while you catch your breath.
+- The gun aims itself at the nearest bot it has a clear shot at. A dashed circle
+  marks how far it can reach; a miss keeps flying past that circle at full
+  speed until it leaves the map or hits a wall, rather than vanishing at the
+  edge of the turret's own reach.
 - **Outrunning the wave is not a strategy.** Most bots spawn in the hemisphere you
-  are heading toward, runners are faster than you late in a run, and bots you have
-  genuinely left behind are recycled to spawn where you actually are.
+  are heading toward, runners are faster than you late in a run, bots you have
+  genuinely left behind are recycled to spawn where you actually are — and now
+  there's only so much map to run into before the fence ends the conversation.
 - **HP bar** drains every time a bot touches you. Bots bounce off after landing a
   hit, so they cannot park on top of you — and that's the only thing contact does:
   touching the square costs you HP, never the bot HP. Bots only take damage from
@@ -139,6 +152,11 @@ config with the reasoning:
   against a 209 vu/s runner — nothing could ever reach you, and a run you cannot
   lose is a run with no reason to upgrade. The permanent Speed track is short and
   cheap-stepped for the same reason.
+- **The map (`WORLD.halfSize`) is 2500, not the first number tried.** At 2000 an
+  invested build that used to beat the boss outright dropped to a 60% win rate
+  on the harness — obstacles plus a tighter fence made it easy to get boxed in.
+  2500 is the smallest size that gave the original ladder back while keeping the
+  fence genuinely reachable within a run.
 
 ## The balance harness
 
@@ -150,17 +168,20 @@ gold for each, and fails if the app logged any console error.
 ```
 runs per row: 6
 meta         win%   time   kills  lvl   gold  onscreen  orbs
-fresh         0%    87.2  126.3   7.7   293.3    98.5   0.0
-third        17%   193.8  760.8  15.0  2462.7   129.7   2.3
-two-third   100%   213.3  948.5  15.0  3699.0    25.8   5.3
-maxed       100%   195.5  907.8  15.0  3546.0    13.8   8.3
+fresh         0%    88.3  147.7   8.3  336.5    83.8   5.3
+third         0%   166.6  612.2  14.5  1873.8   117.7   1.3
+two-third   100%   204.6  927.2  15.0  3614.5    19.2   3.0
+maxed       100%   206.0  936.0  15.0  3691.3    15.2   6.3
 ```
 
 The pilot in the harness is a competent kiter: it flees the local crowd weighted
 by inverse square distance, with a tangential component so it strafes around
-pressure instead of sprinting into the bots spawning ahead of it. Measuring
-balance against a stationary dummy would be meaningless now that movement is the
-core of the game — the first version of the pilot survived 181 seconds with 137
+pressure instead of sprinting into the bots spawning ahead of it, and steers
+around obstacles and the fence the same way — added the same afternoon as the
+map itself, once a pilot blind to geometry made a wall-and-obstacle patch look
+like a much bigger difficulty spike than it actually was. Measuring balance
+against a stationary dummy would be meaningless now that movement is the core
+of the game — the first version of the pilot survived 181 seconds with 137
 kills, which is what exposed that kiting needed a counter at all. Since loot has
 to be collected, the pilot also dives for orbs when the crowd around it thins,
 and it picks from the same three random cards the real UI renders.
@@ -215,6 +236,8 @@ scripts/
 Performance notes, because this has to hold 60 fps on a mid-range Android with 300
 bots on screen: entities are pre-allocated in fixed pools and never garbage
 collected mid-run, near-neighbour queries go through a uniform spatial hash keyed
-by a multiplicative hash so the world can be unbounded, rather than an O(n²) scan, the device pixel ratio is capped at 2, canvas shadow blur is
-restricted to a handful of large static elements, and the HUD only touches the DOM
-when a displayed value actually changes.
+by a multiplicative hash rather than an O(n²) scan, obstacle and fence collision
+is a dozen-rectangle check against a hand-placed list rather than anything that
+needs its own spatial structure, the device pixel ratio is capped at 2, canvas
+shadow blur is restricted to a handful of large static elements, and the HUD
+only touches the DOM when a displayed value actually changes.
