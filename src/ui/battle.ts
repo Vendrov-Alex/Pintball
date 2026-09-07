@@ -1,11 +1,12 @@
 import { sfx, unlockAudio } from '../core/audio';
 import { music } from '../core/music';
 import * as haptics from '../core/haptics';
-import { JOYSTICK, MAX_LEVEL, OBSTACLES, RUN_DURATION, WAVES, WAVE_SECONDS, WORLD } from '../game/config';
+import { EQUIPMENT, JOYSTICK, MAX_LEVEL, OBSTACLES, RUN_DURATION, WAVES, WAVE_SECONDS, WORLD } from '../game/config';
 import { Game } from '../game/engine';
 import { Renderer, type JoystickView } from '../game/renderer';
 import type { RunResult } from '../game/types';
 import type { UpgradeChoice } from '../game/upgrades';
+import { applyBossDrop, ownedEquipmentMap, rollBossDrop } from '../meta/equipment';
 import { allMetaMultipliers } from '../meta/metaUpgrades';
 import { addGold, getProfile, recordRun } from '../meta/profile';
 import { formatGold, formatTime, onTap, qs } from './dom';
@@ -97,6 +98,7 @@ export class Battle {
     this.game = new Game({
       onLevelUp: (choices, level) => this.showLevelUp(choices, level),
       onBossSpawn: () => this.onBossSpawn(),
+      onVictoryStart: () => this.onVictoryStart(),
       onEnd: (result) => this.finish(result),
       onKill: () => sfx.kill(),
       onPlayerHit: () => {
@@ -104,6 +106,7 @@ export class Battle {
         haptics.hit();
       },
       onShoot: () => sfx.shoot(),
+      onCoinCollect: () => sfx.coin(),
     });
 
     this.hudTimer = qs(this.root, '.hud__timer-value');
@@ -157,7 +160,7 @@ export class Battle {
     this.hudCache = { hp: -1, maxHp: -1, xp: -1, level: -1, gold: -1, time: -1, wave: -1 };
 
     this.layout();
-    this.game.start(allMetaMultipliers());
+    this.game.start(allMetaMultipliers(), ownedEquipmentMap());
 
     this.showBanner('Wave 1', 'banner--wave');
     this.lastFrame = performance.now();
@@ -323,9 +326,9 @@ export class Battle {
 
     const remaining = Math.max(0, RUN_DURATION - g.elapsed);
     const shown = Math.ceil(remaining);
-    if (shown !== cache.time) {
+    if (shown !== cache.time || g.phase === 'victory') {
       cache.time = shown;
-      this.hudTimer.textContent = g.bossActive || g.bossKilled ? 'BOSS' : formatTime(remaining);
+      this.hudTimer.textContent = g.phase === 'victory' ? 'GOLD!' : g.bossActive || g.bossKilled ? 'BOSS' : formatTime(remaining);
       this.hudTimer.classList.toggle('is-urgent', !g.bossActive && remaining <= 10);
     }
 
@@ -357,6 +360,13 @@ export class Battle {
     music.enterBoss();
     haptics.death();
     this.showBanner('BOSS INCOMING', 'banner--boss');
+  }
+
+  private onVictoryStart(): void {
+    sfx.win();
+    haptics.levelUp();
+    this.showBanner('BOSS DOWN!', 'banner--win');
+    qs(this.root, '.chip--gold').classList.add('is-counting');
   }
 
   // ---------------------------------------------------------------- level up
@@ -418,6 +428,13 @@ export class Battle {
 
   private quit(): void {
     if (this.game.phase === 'ended') return;
+    if (this.game.phase === 'victory') {
+      // The boss is already dead by this point — backing out of the vacuum
+      // early is not the same thing as losing. onEnd (wired to finish()) fires
+      // synchronously, so there's nothing further to do here.
+      this.game.skipVictory();
+      return;
+    }
     // Leaving early still banks the gold that was actually earned.
     this.finish({
       won: false,
@@ -433,7 +450,15 @@ export class Battle {
 
   private finish(result: RunResult): void {
     this.levelModal.hidden = true;
+    qs(this.root, '.chip--gold').classList.remove('is-counting');
     music.enterMenu();
+
+    // The drop is rolled before the gold from it (if any) is added to the
+    // total the result screen banks, so "+400" for an all-gear run and the
+    // banked total both already agree with each other.
+    const drop = result.won && result.bossKilled ? rollBossDrop() : null;
+    if (drop) applyBossDrop(drop);
+
     addGold(result.gold);
     recordRun({
       kills: result.kills,
@@ -442,12 +467,22 @@ export class Battle {
       won: result.won,
     });
     if (result.won) {
-      sfx.win();
       haptics.levelUp();
     } else {
       sfx.lose();
       haptics.death();
     }
+
+    const gearHtml = drop
+      ? drop.id
+        ? `<div class="result__gear" style="--accent:${EQUIPMENT[drop.id].accent}">
+             <span class="result__gear-icon" aria-hidden="true">${EQUIPMENT[drop.id].icon}</span>
+             <span><strong>New gear:</strong> ${EQUIPMENT[drop.id].name}</span>
+           </div>`
+        : `<div class="result__gear">
+             <span><strong>All gear owned</strong> — bonus +${formatGold(drop.bonusGold)} instead</span>
+           </div>`
+      : '';
 
     const card = qs(this.resultModal, '.modal__card');
     card.innerHTML = `
@@ -460,9 +495,10 @@ export class Battle {
         <div><span>Level</span><strong>${result.level}</strong></div>
         <div><span>Survived</span><strong>${formatTime(result.survivedSeconds)}</strong></div>
       </div>
+      ${gearHtml}
       <div class="result__gold">
         <span class="coin coin--lg" aria-hidden="true"></span>
-        <strong>+${formatGold(result.gold)}</strong>
+        <strong>+${formatGold(result.gold + (drop?.bonusGold ?? 0))}</strong>
         <em>banked · total ${formatGold(getProfile().gold)}</em>
       </div>
       <div class="result__actions">

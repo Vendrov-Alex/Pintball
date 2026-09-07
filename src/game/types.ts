@@ -53,6 +53,36 @@ export interface Pickup {
   value: number;
 }
 
+/** A Fire Cannon shot: launched, flies its arc, then explodes at a fixed point. */
+export interface Fireball {
+  active: boolean;
+  /** Current rendered position, interpolated between origin and target. */
+  x: number;
+  y: number;
+  originX: number;
+  originY: number;
+  /** Where it detonates — fixed at launch, not tracking the target afterward,
+   *  the way a real lobbed shot would. */
+  targetX: number;
+  targetY: number;
+  /** 0..1 through the flight. */
+  t: number;
+  duration: number;
+}
+
+/** The laser's visible beam for the brief window after it fires. Purely a
+ *  render concern — the hit-test happens once, instantly, when it's cast. */
+export interface LaserBeam {
+  active: boolean;
+  originX: number;
+  originY: number;
+  dirX: number;
+  dirY: number;
+  length: number;
+  life: number;
+  maxLife: number;
+}
+
 export interface Particle {
   active: boolean;
   x: number;

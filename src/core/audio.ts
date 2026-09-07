@@ -10,6 +10,7 @@
 import { ensureEngine, playNoise, playTone, setEngineEnabled } from './audioEngine';
 
 let lastShot = 0;
+let lastCoin = 0;
 let uiVariance = 0;
 
 export function unlockAudio(): void {
@@ -106,5 +107,15 @@ export const sfx = {
     playTone({ freq: 784, duration: 0.09, type: 'square', gain: 0.09 });
     playTone({ freq: 1174.66, duration: 0.14, type: 'square', gain: 0.09, delay: 0.07 });
     playTone({ freq: 2349.32, duration: 0.18, type: 'sine', gain: 0.04, delay: 0.09, reverb: 0.2 });
+  },
+
+  coin(): void {
+    // The post-boss vacuum can land a dozen orbs a second — purchase() at that
+    // rate would be a wall of noise. A short, heavily throttled ping with a
+    // little pitch variance reads as "counting" instead of "stuck repeating."
+    const now = performance.now();
+    if (now - lastCoin < 45) return;
+    lastCoin = now;
+    playTone({ freq: 1500 + Math.random() * 500, duration: 0.05, type: 'sine', gain: 0.05 });
   },
 };

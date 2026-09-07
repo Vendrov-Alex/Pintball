@@ -1,4 +1,4 @@
-import { JOYSTICK, OBSTACLES, PICKUP, PLAYER, WORLD } from './config';
+import { AURA, EQUIPMENT, JOYSTICK, LASER, OBSTACLES, PICKUP, PLAYER, WORLD } from './config';
 import type { Game } from './engine';
 
 const clamp = (v: number, lo: number, hi: number): number => (v < lo ? lo : v > hi ? hi : v);
@@ -101,11 +101,14 @@ export class Renderer {
     this.drawFence(ctx);
     this.drawObstacles(ctx);
     this.drawMagnetRing(ctx, game);
+    this.drawAura(ctx, game, time);
     this.drawRangeCircle(ctx, game, time);
     this.drawParticles(ctx, game);
     this.drawPickups(ctx, game, time);
     this.drawEnemies(ctx, game);
     this.drawBullets(ctx, game);
+    this.drawFireballs(ctx, game);
+    this.drawLaserBeam(ctx, game);
     this.drawPlayer(ctx, game, time);
     this.drawFloats(ctx, game);
 
@@ -184,6 +187,124 @@ export class Renderer {
     ctx.restore();
   }
 
+  /**
+   * The Hellfire Aura's field — a permanent glow rather than a one-shot effect,
+   * so it needs to read as "always on" even at a glance. Drawn under the range
+   * circle since it's a smaller radius that would otherwise get lost behind it.
+   */
+  private drawAura(ctx: CanvasRenderingContext2D, game: Game, time: number): void {
+    if (!game.equipment.aura) return;
+    const pulse = 0.9 + Math.sin(time * 0.008) * 0.1;
+    ctx.save();
+    ctx.translate(game.player.x, game.player.y);
+    ctx.globalCompositeOperation = 'lighter';
+    const fill = ctx.createRadialGradient(0, 0, AURA.radius * 0.25, 0, 0, AURA.radius * pulse);
+    fill.addColorStop(0, 'rgba(255, 47, 109, 0.28)');
+    fill.addColorStop(1, 'rgba(255, 47, 109, 0)');
+    ctx.fillStyle = fill;
+    ctx.beginPath();
+    ctx.arc(0, 0, AURA.radius * pulse, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255, 100, 140, 0.5)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(0, 0, AURA.radius, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  /** Fire Cannon shells — a glowing lob whose apparent height comes from a
+   *  sine over its flight progress, since the underlying sim only tracks a
+   *  straight lerp between launch and impact. */
+  private drawFireballs(ctx: CanvasRenderingContext2D, game: Game): void {
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    for (const fb of game.fireballs.items) {
+      if (!fb.active) continue;
+      const p = Math.min(1, fb.t / fb.duration);
+      const arc = Math.sin(p * Math.PI) * 46;
+      const gx = fb.x;
+      const gy = fb.y - arc;
+      const g = ctx.createRadialGradient(gx, gy, 0, gx, gy, 15);
+      g.addColorStop(0, 'rgba(255, 224, 170, 0.95)');
+      g.addColorStop(0.5, 'rgba(255, 143, 77, 0.6)');
+      g.addColorStop(1, 'rgba(255, 90, 40, 0)');
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(gx, gy, 15, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  /** The laser's piercing beam, drawn only while its short visual life is
+   *  running — the hit-test that damages bots along it already happened the
+   *  instant it fired, so this is purely the flash that sells it. */
+  private drawLaserBeam(ctx: CanvasRenderingContext2D, game: Game): void {
+    const beam = game.laserBeam;
+    if (!beam.active || beam.life <= 0) return;
+    const alpha = Math.max(0, beam.life / beam.maxLife);
+    const endX = beam.originX + beam.dirX * beam.length;
+    const endY = beam.originY + beam.dirY * beam.length;
+
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.lineCap = 'round';
+    ctx.shadowColor = 'rgba(90, 209, 255, 0.85)';
+    ctx.shadowBlur = 20;
+    ctx.strokeStyle = `rgba(90, 209, 255, ${alpha * 0.7})`;
+    ctx.lineWidth = LASER.beamWidth;
+    ctx.beginPath();
+    ctx.moveTo(beam.originX, beam.originY);
+    ctx.lineTo(endX, endY);
+    ctx.stroke();
+
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = `rgba(240, 253, 255, ${alpha})`;
+    ctx.lineWidth = LASER.beamWidth * 0.32;
+    ctx.beginPath();
+    ctx.moveTo(beam.originX, beam.originY);
+    ctx.lineTo(endX, endY);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  /**
+   * Boss-dropped gear worn on the player square: the laser and fire cannon
+   * read as "hands" attached to opposite sides (mirroring how the multi-shot
+   * upgrade's extra hands are implied, since neither has a sprite of its
+   * own), the aura as a thin outline on the body itself.
+   */
+  private drawGear(ctx: CanvasRenderingContext2D, game: Game, s: number): void {
+    const eq = game.equipment;
+    if (eq.laser) {
+      ctx.save();
+      ctx.fillStyle = EQUIPMENT.laser.accent;
+      ctx.shadowColor = EQUIPMENT.laser.accent;
+      ctx.shadowBlur = 8;
+      ctx.fillRect(s * 0.65, -s * 0.2, s * 0.55, s * 0.4);
+      ctx.restore();
+    }
+    if (eq.fireCannon) {
+      ctx.save();
+      ctx.fillStyle = EQUIPMENT.fireCannon.accent;
+      ctx.shadowColor = EQUIPMENT.fireCannon.accent;
+      ctx.shadowBlur = 8;
+      ctx.beginPath();
+      ctx.arc(-s * 0.95, 0, s * 0.32, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+    if (eq.aura) {
+      ctx.save();
+      ctx.strokeStyle = EQUIPMENT.aura.accent;
+      ctx.globalAlpha = 0.75;
+      ctx.lineWidth = 2;
+      ctx.strokeRect(-s * 1.2, -s * 1.2, s * 2.4, s * 2.4);
+      ctx.restore();
+    }
+  }
+
   /** Gold orbs are discs, XP orbs are diamonds — shape reads faster than hue. */
   private drawPickups(ctx: CanvasRenderingContext2D, game: Game, time: number): void {
     const r = PICKUP.radius;
@@ -258,6 +379,7 @@ export class Renderer {
     ctx.strokeStyle = 'rgba(10, 14, 24, 0.85)';
     ctx.lineWidth = 3;
     ctx.strokeRect(-s * 0.55, -s * 0.55, s * 1.1, s * 1.1);
+    this.drawGear(ctx, game, s);
     ctx.restore();
   }
 

@@ -486,6 +486,78 @@ button {
   letter-spacing: 0.1em;
 }
 
+/* -------------------------------------------------------------- gear screen */
+
+.gear-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.gear-card {
+  display: grid;
+  grid-template-columns: 46px 1fr;
+  align-items: center;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--line));
+  border-radius: var(--radius);
+  background: linear-gradient(120deg, color-mix(in srgb, var(--accent) 14%, transparent), transparent 65%),
+    var(--panel);
+}
+
+.gear-card.is-locked {
+  border-color: var(--line);
+  background: var(--panel);
+  opacity: 0.7;
+}
+
+.gear-card__icon {
+  width: 46px;
+  height: 46px;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  color: var(--accent);
+  font-size: 21px;
+}
+
+.gear-card.is-locked .gear-card__icon {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--muted);
+}
+
+.gear-card__title {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.gear-card__title h3 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.gear-card__status {
+  color: var(--good);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.gear-card.is-locked .gear-card__status {
+  color: var(--muted);
+}
+
+.gear-card__desc {
+  margin: 2px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
 /* ------------------------------------------------------------- shop screen */
 
 .pack {
@@ -740,6 +812,22 @@ button {
   font-size: 34px;
 }
 
+.banner--win {
+  color: var(--good);
+  font-size: 34px;
+}
+
+.chip--gold.is-counting {
+  animation: coin-pulse 420ms ease-in-out infinite;
+  border-color: color-mix(in srgb, var(--gold) 60%, var(--line));
+}
+
+@keyframes coin-pulse {
+  50% {
+    transform: scale(1.08);
+  }
+}
+
 @keyframes pulse {
   50% {
     opacity: 0.55;
@@ -900,6 +988,35 @@ button {
   margin-top: 4px;
   font-size: 18px;
   font-variant-numeric: tabular-nums;
+}
+
+.result__gear {
+  --accent: var(--accent);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  margin-bottom: 12px;
+  font-size: 13px;
+}
+
+.result__gear strong {
+  color: var(--accent);
+}
+
+.result__gear-icon {
+  flex: none;
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--accent) 26%, transparent);
+  color: var(--accent);
+  font-size: 16px;
 }
 
 .result__gold {

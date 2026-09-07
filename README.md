@@ -23,7 +23,7 @@ npm run build        # typecheck + production bundle into dist/
 npm run qa           # headless balance + smoke test (see below)
 ```
 
-## The three screens
+## The four screens
 
 Swipe left/right, or tap the dots at the bottom.
 
@@ -31,7 +31,8 @@ Swipe left/right, or tap the dots at the bottom.
 |---|---------|--------------|
 | 1 | **Battle**  | The `Battle` button and your lifetime records. |
 | 2 | **Upgrade** | Permanent, gold-bought upgrades: Attack, Attack Speed, Range, Health, Magnet, Speed. (More Hands is in-run only — see the level-up table below.) |
-| 3 | **Shop**    | Gold packs unlocked by watching a rewarded video ad. |
+| 3 | **Gear**    | The three boss-dropped equipment pieces — locked/unlocked gallery, nothing to buy. See below. |
+| 4 | **Shop**    | Gold packs unlocked by watching a rewarded video ad. |
 
 ## Optional account sign-in
 
@@ -124,11 +125,49 @@ inline it — see the header comment in `src/core/auth.artifact-stub.ts`.
   than you and **enrages** after thirty seconds, accelerating until it is
   unambiguously faster — a boss you can kite forever is not a fight, it is a
   stalemate. Kill it to win.
+- **Killing the boss doesn't end the run on the spot.** A 5-second victory
+  sequence (`VICTORY` in `src/game/config.ts`) takes over: every gold orb still
+  on the map — anything the magnet never reached — gets vacuumed straight to
+  the square at a flat high speed (`VICTORY.pullSpeed`), each pickup landing
+  with a throttled coin ping and a pulse on the gold counter, casino-style. A
+  "BOSS DOWN!" banner covers the old countdown while it plays. Quitting mid-
+  sequence (`Game.skipVictory()`) still banks whatever was collected and still
+  counts as a win — it does not silently convert into a loss.
 - Win or lose, you keep **all the gold** from every bot you killed. Spend it on the
   Upgrade screen; those upgrades carry into every future run.
+- **Beating the boss also drops one piece of gear** — see below.
 
 Movement, joystick feel and spawn pressure are `PLAYER.moveSpeed`, `JOYSTICK` and
 `SPAWN_LEAD_BIAS` in `src/game/config.ts`.
+
+## Boss-dropped gear
+
+A third progression axis alongside gold-bought permanent upgrades and in-run
+level-up picks: three passive weapons, each visually worn on the square, that
+stay active on every future run once unlocked. `EQUIPMENT`, `LASER`,
+`FIRE_CANNON` and `AURA` in `src/game/config.ts` hold every tunable number;
+`src/meta/equipment.ts` holds the drop logic.
+
+| Gear | Worn as | Fires | Effect |
+|---|---|---|---|
+| **Piercing Laser** | A hand | Every 3s (`LASER.cooldown`) | A beam at the nearest bot that damages it and everything else it passes through on the way to the map edge or a wall — the one attack that punishes bots for lining up. |
+| **Fire Cannon** | A hand | Every 7s (`FIRE_CANNON.cooldown`) | Lobs an exploding fireball at whatever bot is closest to the edge of your firing circle — a lane the main gun and the laser both leave uncovered, since they both target the nearest bot. |
+| **Hellfire Aura** | The body | Continuously, ticking every 0.4s (`AURA.tickInterval`) | Damages anything inside a fixed radius around the square, boss included. Always on — there is no cooldown to time. |
+
+All three stack with the regular gun and with each other; none of them
+replace it. Every boss kill drops whichever piece you don't already own,
+picked at random, so it's never the same one twice in a row — once all three
+are owned, a kill pays a flat gold bonus (`ALL_OWNED_BONUS_GOLD` in
+`src/meta/equipment.ts`) instead so a kill never stops feeling like a reward.
+Ownership is permanent and applies to every run from then on; there's no
+loadout to manage and nothing to buy on the Gear screen.
+
+Deliberately not run through the balance harness the way the level-up lines
+and meta upgrades are: gear only turns on once owned (`Game.equipment`
+defaults to all-`false`, and the harness's autopilot never plays a run long
+enough to farm three boss kills from a fresh profile), so it cannot move the
+harness's win-rate ladder. It is postgame power by design, not a lever tuned
+against the core difficulty curve.
 
 ## Where the numbers live
 
@@ -224,8 +263,9 @@ src/
     pool.ts, grid.ts   object pools and the spatial hash
   meta/
     profile.ts          persistent profile, permanent upgrade maths
+    equipment.ts         boss-drop roll/unlock logic for the three gear pieces
     cloudSync.ts         Firestore reconciliation for signed-in accounts
-  ui/                  swipe pager, three screens, battle HUD and modals
+  ui/                  swipe pager, four screens, battle HUD and modals
 scripts/
   simulate.mjs         headless QA + balance harness
   build-artifact.mjs   collapses the build into one hostable HTML file

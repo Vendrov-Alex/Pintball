@@ -24,7 +24,7 @@ export class HomeScreen {
 
         <dl class="stat-grid"></dl>
 
-        <p class="swipe-hint"><span aria-hidden="true">‹</span> Swipe for Upgrades &amp; Shop <span aria-hidden="true">›</span></p>
+        <p class="swipe-hint"><span aria-hidden="true">‹</span> Swipe for Upgrades, Gear &amp; Shop <span aria-hidden="true">›</span></p>
       </div>`;
 
     this.stats = qs(this.root, '.stat-grid');

@@ -1,10 +1,13 @@
 import {
+  AURA,
   BOSS,
   BOSS_KILL_BONUS,
   DESPAWN_FACTOR,
   ENEMY_BASE,
   ENEMY_KINDS,
   ENEMY_SCALING,
+  FIRE_CANNON,
+  LASER,
   LEVEL_UP_HEAL,
   MAX_LEVEL,
   OBSTACLES,
@@ -13,6 +16,7 @@ import {
   RUN_DURATION,
   RUN_UPGRADE_LINES,
   SPAWN_LEAD_BIAS,
+  VICTORY,
   VIEW_SHORT_SIDE,
   WAVES,
   WAVE_SECONDS,
@@ -20,11 +24,12 @@ import {
   XP_TABLE,
   type EnemyKind,
   type EnemyKindId,
+  type EquipmentId,
   type Obstacle,
 } from './config';
 import { SpatialGrid } from './grid';
 import { Pool } from './pool';
-import type { Bullet, Enemy, FloatText, Particle, Pickup, RunResult, Vec, ViewInfo } from './types';
+import type { Bullet, Enemy, Fireball, FloatText, LaserBeam, Particle, Pickup, RunResult, Vec, ViewInfo } from './types';
 import {
   emptyPicks,
   pickMultiplier,
@@ -46,15 +51,19 @@ const MAX_FLOATS = 200;
 /** Two orbs per kill at up to ten kills a second, times an 18 second lifetime. */
 const MAX_PICKUPS = 640;
 
-export type Phase = 'idle' | 'running' | 'levelup' | 'ended';
+export type Phase = 'idle' | 'running' | 'levelup' | 'victory' | 'ended';
 
 export interface EngineHooks {
   onLevelUp(choices: UpgradeChoice[], level: number): void;
   onBossSpawn(): void;
+  /** The boss is dead and the map-wide gold vacuum has begun — see `Game.equipment` for what's owned. */
+  onVictoryStart(): void;
   onEnd(result: RunResult): void;
   onKill(): void;
   onPlayerHit(): void;
   onShoot(): void;
+  /** One orb landed during the victory-sequence vacuum, for the coin-counting cue. */
+  onCoinCollect(amount: number): void;
 }
 
 /** Multiplier per upgrade line; also the shape the meta screen hands to start(). */
@@ -136,8 +145,22 @@ export class Game {
   readonly pickups = new Pool<Pickup>(MAX_PICKUPS, () => ({
     active: false, x: 0, y: 0, vx: 0, vy: 0, life: 0, kind: 'gold', value: 1,
   }));
+  // Cadence is slow (7s) and one shot is almost always resolved before the
+  // next is due, so this only ever needs to be big enough to be safe, not big.
+  readonly fireballs = new Pool<Fireball>(6, () => ({
+    active: false, x: 0, y: 0, originX: 0, originY: 0, targetX: 0, targetY: 0, t: 0, duration: 1,
+  }));
 
   boss: Enemy | null = null;
+
+  /**
+   * Boss-dropped gear (see meta/equipment.ts), passed in at start() and fixed
+   * for the run. Ownership itself lives in the profile, outside the engine —
+   * this is just which of it is switched on for the run in progress.
+   */
+  equipment: Record<EquipmentId, boolean> = { laser: false, fireCannon: false, aura: false };
+  /** The laser's current beam, if one was fired recently enough to still be drawn. */
+  laserBeam: LaserBeam = { active: false, originX: 0, originY: 0, dirX: 0, dirY: 1, length: 0, life: 0, maxLife: 1 };
 
   private readonly grid = new SpatialGrid(44);
   private readonly hooks: EngineHooks;
@@ -146,6 +169,11 @@ export class Game {
   };
 
   private fireCooldown = 0;
+  private laserCooldown = 0;
+  private cannonCooldown = 0;
+  private auraTick = 0;
+  /** Seconds left in the post-boss gold vacuum; see startVictory(). */
+  private victoryTimer = 0;
   private spawnCarry = 0;
   private invuln = 0;
   /** Normalised movement input, magnitude 0..1. */
@@ -176,9 +204,14 @@ export class Game {
     };
   }
 
-  /** `meta` carries the permanent, gold-bought multipliers. */
-  start(meta: PlayerStats): void {
+  /**
+   * `meta` carries the permanent, gold-bought multipliers. `equipment` is
+   * which boss-dropped gear is owned — everything owned is active for the
+   * whole run; there's no loadout to manage for three items.
+   */
+  start(meta: PlayerStats, equipment: Record<EquipmentId, boolean> = { laser: false, fireCannon: false, aura: false }): void {
     this.metaMultipliers = meta;
+    this.equipment = equipment;
     this.picks = emptyPicks();
     this.refreshStats();
     this.maxHp = this.stats.maxHp;
@@ -193,6 +226,11 @@ export class Game {
     this.bossTimer = 0;
     this.boss = null;
     this.fireCooldown = 0;
+    this.laserCooldown = LASER.cooldown;
+    this.cannonCooldown = FIRE_CANNON.cooldown;
+    this.auraTick = 0;
+    this.victoryTimer = 0;
+    this.laserBeam.active = false;
     this.spawnCarry = 0;
     this.invuln = 0;
     this.shake = 0;
@@ -207,6 +245,7 @@ export class Game {
     this.moveY = 0;
     this.enemies.clear();
     this.bullets.clear();
+    this.fireballs.clear();
     this.particles.clear();
     this.floats.clear();
     this.pickups.clear();
@@ -217,6 +256,12 @@ export class Game {
 
   abandon(): void {
     this.phase = 'idle';
+  }
+
+  /** Leaving mid-vacuum still means the boss is dead — skip straight to the
+   *  result with whatever gold had already landed, rather than losing the win. */
+  skipVictory(): void {
+    if (this.phase === 'victory') this.end(true);
   }
 
   private refreshStats(): void {
@@ -312,12 +357,17 @@ export class Game {
   // ------------------------------------------------------------------ update
 
   update(dt: number): void {
+    if (this.phase === 'victory') {
+      this.updateVictory(dt);
+      return;
+    }
     if (this.phase !== 'running') return;
 
     this.elapsed += dt;
     this.shake = Math.max(0, this.shake - dt * 34);
     this.rangePulse = Math.max(0, this.rangePulse - dt * 1.6);
     this.invuln = Math.max(0, this.invuln - dt);
+    if (this.laserBeam.life > 0) this.laserBeam.life -= dt;
 
     if (!this.bossActive && !this.bossKilled && this.elapsed >= RUN_DURATION) this.spawnBoss();
     if (this.bossActive) this.bossTimer += dt;
@@ -327,6 +377,10 @@ export class Game {
     this.updateSpawning(dt);
     this.updateEnemies(dt);
     this.updateWeapon(dt);
+    this.updateLaser(dt);
+    this.updateFireCannon(dt);
+    this.updateFireballs(dt);
+    this.updateAura(dt);
     this.updateBullets(dt);
     this.updatePickups(dt);
     this.updateParticles(dt);
@@ -717,6 +771,185 @@ export class Game {
     this.hooks.onShoot();
   }
 
+  // -------------------------------------------------------------- equipment
+
+  /**
+   * Distance from the player to wherever a ray first leaves the map, along a
+   * unit direction. The player is always inside the fence, so this is a plain
+   * slab test against the one box it starts in, not a general AABB entry test.
+   */
+  private rayBoundsExit(dirX: number, dirY: number): number {
+    const h = WORLD.halfSize;
+    let t = Infinity;
+    if (dirX > 1e-9) t = Math.min(t, (h - this.player.x) / dirX);
+    else if (dirX < -1e-9) t = Math.min(t, (-h - this.player.x) / dirX);
+    if (dirY > 1e-9) t = Math.min(t, (h - this.player.y) / dirY);
+    else if (dirY < -1e-9) t = Math.min(t, (-h - this.player.y) / dirY);
+    return t;
+  }
+
+  /** Standard slab-method ray/AABB entry distance, or null if the ray misses
+   *  the rectangle (or only meets it behind the origin). */
+  private rayRectDistance(x: number, y: number, dx: number, dy: number, o: Obstacle): number | null {
+    const minX = o.x - o.halfW;
+    const maxX = o.x + o.halfW;
+    const minY = o.y - o.halfH;
+    const maxY = o.y + o.halfH;
+    let tMin = -Infinity;
+    let tMax = Infinity;
+
+    if (Math.abs(dx) < 1e-9) {
+      if (x < minX || x > maxX) return null;
+    } else {
+      let t1 = (minX - x) / dx;
+      let t2 = (maxX - x) / dx;
+      if (t1 > t2) [t1, t2] = [t2, t1];
+      tMin = Math.max(tMin, t1);
+      tMax = Math.min(tMax, t2);
+    }
+    if (Math.abs(dy) < 1e-9) {
+      if (y < minY || y > maxY) return null;
+    } else {
+      let t1 = (minY - y) / dy;
+      let t2 = (maxY - y) / dy;
+      if (t1 > t2) [t1, t2] = [t2, t1];
+      tMin = Math.max(tMin, t1);
+      tMax = Math.min(tMax, t2);
+    }
+    if (tMax < tMin || tMax < 0) return null;
+    return tMin >= 0 ? tMin : tMax;
+  }
+
+  /** How far the laser can reach before the map edge or a wall stops it. */
+  private laserRange(dirX: number, dirY: number): number {
+    let dist = this.rayBoundsExit(dirX, dirY);
+    for (const o of OBSTACLES) {
+      const hit = this.rayRectDistance(this.player.x, this.player.y, dirX, dirY, o);
+      if (hit !== null && hit < dist) dist = hit;
+    }
+    return dist;
+  }
+
+  /**
+   * Fires at the nearest bot the same way the main gun's primary hand does
+   * (so a wall that blocks the gun blocks this too), then damages every other
+   * bot the beam passes through on its way to the map edge or a wall — the
+   * one attack in the game that punishes bots for lining up behind each other.
+   */
+  private updateLaser(dt: number): void {
+    if (!this.equipment.laser) return;
+    this.laserCooldown -= dt;
+    if (this.laserCooldown > 0) return;
+    this.laserCooldown = LASER.cooldown;
+
+    const target = this.pickTargets(1)[0];
+    if (!target) return;
+
+    const dx = target.x - this.player.x;
+    const dy = target.y - this.player.y;
+    const len = Math.hypot(dx, dy) || 1;
+    const dirX = dx / len;
+    const dirY = dy / len;
+    const range = this.laserRange(dirX, dirY);
+
+    this.grid.query(this.player.x, this.player.y, range, (e) => {
+      const px = e.x - this.player.x;
+      const py = e.y - this.player.y;
+      const along = px * dirX + py * dirY;
+      if (along < -e.radius || along > range) return;
+      const perp = Math.abs(px * dirY - py * dirX);
+      if (perp <= e.radius + LASER.beamWidth) this.damageEnemy(e, LASER.damage, dirX, dirY);
+    });
+
+    this.laserBeam.active = true;
+    this.laserBeam.originX = this.player.x;
+    this.laserBeam.originY = this.player.y;
+    this.laserBeam.dirX = dirX;
+    this.laserBeam.dirY = dirY;
+    this.laserBeam.length = range;
+    this.laserBeam.life = LASER.visualLife;
+    this.laserBeam.maxLife = LASER.visualLife;
+  }
+
+  /**
+   * Targets whichever bot is closest to sitting exactly on the firing-range
+   * ring — "arriving at the boundary" — rather than the nearest bot overall,
+   * which the main gun and the laser already cover. Arcs rather than flies
+   * straight, and (deliberately, unlike everything else in the game) ignores
+   * obstacles: a lobbed shot going over a wall is what makes it read as an
+   * arc instead of just a slower bullet.
+   */
+  private updateFireCannon(dt: number): void {
+    if (!this.equipment.fireCannon) return;
+    this.cannonCooldown -= dt;
+    if (this.cannonCooldown > 0) return;
+    this.cannonCooldown = FIRE_CANNON.cooldown;
+
+    const range = this.stats.range;
+    let best: Enemy | null = null;
+    let bestDelta = Infinity;
+    this.grid.query(this.player.x, this.player.y, range * 1.4, (e) => {
+      const delta = Math.abs(Math.hypot(e.x - this.player.x, e.y - this.player.y) - range);
+      if (delta < bestDelta) {
+        bestDelta = delta;
+        best = e;
+      }
+    });
+    if (!best) return;
+
+    const fb = this.fireballs.obtain();
+    if (!fb) return;
+    const target = best as Enemy;
+    fb.originX = this.player.x;
+    fb.originY = this.player.y;
+    fb.x = fb.originX;
+    fb.y = fb.originY;
+    fb.targetX = target.x;
+    fb.targetY = target.y;
+    fb.t = 0;
+    fb.duration = FIRE_CANNON.arcTime;
+  }
+
+  private updateFireballs(dt: number): void {
+    for (const fb of this.fireballs.items) {
+      if (!fb.active) continue;
+      fb.t += dt;
+      const p = Math.min(1, fb.t / fb.duration);
+      fb.x = lerp(fb.originX, fb.targetX, p);
+      fb.y = lerp(fb.originY, fb.targetY, p);
+      if (p < 1) continue;
+
+      fb.active = false;
+      this.grid.query(fb.targetX, fb.targetY, FIRE_CANNON.splashRadius, (e) => {
+        const dx = e.x - fb.targetX;
+        const dy = e.y - fb.targetY;
+        if (dx * dx + dy * dy <= (FIRE_CANNON.splashRadius + e.radius) ** 2) {
+          this.damageEnemy(e, FIRE_CANNON.damage, dx, dy);
+        }
+      });
+      this.burst(fb.targetX, fb.targetY, 16, '#ff8f4d', 230);
+      this.shake = Math.min(22, this.shake + 5);
+    }
+  }
+
+  /** A tick rather than a per-frame drain, so it reads as distinct pulses of
+   *  heat instead of a silent number going down. Reaches the boss too — an
+   *  aura that stopped at "regular bots only" would have no reason to. */
+  private updateAura(dt: number): void {
+    if (!this.equipment.aura) return;
+    this.auraTick -= dt;
+    if (this.auraTick > 0) return;
+    this.auraTick = AURA.tickInterval;
+
+    this.grid.query(this.player.x, this.player.y, AURA.radius, (e) => {
+      const dx = e.x - this.player.x;
+      const dy = e.y - this.player.y;
+      if (dx * dx + dy * dy <= (AURA.radius + e.radius) ** 2) {
+        this.damageEnemy(e, AURA.damagePerTick, dx || 1, dy);
+      }
+    });
+  }
+
   private fireAt(target: Enemy, damageShare: number): void {
     const b = this.bullets.obtain();
     if (!b) return;
@@ -799,12 +1032,14 @@ export class Game {
       this.boss = null;
       this.bossActive = false;
       this.bossKilled = true;
-      // Killing the boss ends the run on the spot, so its reward is credited
-      // directly — orbs nobody can walk over are not a reward.
+      // The boss's own reward is credited directly rather than dropped as an
+      // orb — the run is about to end and an orb nobody can walk over isn't a
+      // reward. Every OTHER orb still lying around the map from earlier in the
+      // run is a different story: those get their moment in startVictory().
       this.gold += e.gold + BOSS_KILL_BONUS;
       this.gainXp(e.xp);
       this.spawnFloat(this.player.x, this.player.y - PLAYER.halfSize * 4, `+${BOSS_KILL_BONUS}`, '#ffd23a');
-      this.end(true);
+      this.startVictory();
       return;
     }
 
@@ -944,6 +1179,45 @@ export class Game {
       f.life -= dt;
       if (f.life <= 0) f.active = false;
     }
+  }
+
+  /**
+   * The run doesn't end the instant the boss does. Every gold orb still on the
+   * map — everything the magnet never reached over the whole run — gets
+   * vacuumed to the square while the total visibly counts up, so a win pays
+   * off the ground you covered instead of abandoning it the second the fight
+   * is over.
+   */
+  private startVictory(): void {
+    this.phase = 'victory';
+    this.victoryTimer = VICTORY.duration;
+    this.hooks.onVictoryStart();
+  }
+
+  private updateVictory(dt: number): void {
+    this.victoryTimer -= dt;
+    this.updateParticles(dt);
+    this.updateFloats(dt);
+
+    let anyGoldLeft = false;
+    for (const p of this.pickups.items) {
+      if (!p.active || p.kind !== 'gold') continue;
+      anyGoldLeft = true;
+
+      const dx = this.player.x - p.x;
+      const dy = this.player.y - p.y;
+      const d = Math.hypot(dx, dy) || 1;
+      p.x += (dx / d) * VICTORY.pullSpeed * dt;
+      p.y += (dy / d) * VICTORY.pullSpeed * dt;
+
+      if (d < PLAYER.halfSize + PICKUP.collectPad + VICTORY.pullSpeed * dt) {
+        p.active = false;
+        this.gold += p.value;
+        this.hooks.onCoinCollect(p.value);
+      }
+    }
+
+    if (this.victoryTimer <= 0 || !anyGoldLeft) this.end(true);
   }
 
   private end(won: boolean): void {

@@ -329,6 +329,85 @@ export type MetaUpgradeId = keyof typeof META_UPGRADES;
 /** Bonus gold for actually killing the boss. */
 export const BOSS_KILL_BONUS = 250;
 
+/**
+ * The victory sequence: the run doesn't end the instant the boss dies. Every
+ * gold orb still on the map — not just the ones inside the magnet — gets
+ * vacuumed straight to the square while the total on screen counts up, coin by
+ * coin, before the result screen appears.
+ */
+export const VICTORY = {
+  /** Seconds the sequence runs, unless every orb is collected sooner. */
+  duration: 5,
+  /** Pull speed during the vacuum, well past the normal magnet's pace — this
+   *  is a payoff moment, not gameplay to react to. */
+  pullSpeed: 950,
+} as const;
+
+/**
+ * Equipment: gear that visibly attaches to the square and adds a second
+ * (third, fourth) way to fight, running alongside the ordinary gun rather than
+ * replacing it. Unlike the gold-bought Upgrade screen or the in-run level-up
+ * picks, these are never purchased — each is a permanent, one-time unlock that
+ * drops from defeating the boss (see meta/equipment.ts for the drop roll), and
+ * once owned it's active in every run from then on. The Gear screen
+ * (src/ui/screens/gear.ts) is a gallery of what's been found, not a shop.
+ */
+export const EQUIPMENT_IDS = ['laser', 'fireCannon', 'aura'] as const;
+export type EquipmentId = (typeof EQUIPMENT_IDS)[number];
+
+export interface EquipmentDef {
+  name: string;
+  description: string;
+  icon: string;
+  accent: string;
+}
+
+export const EQUIPMENT: Record<EquipmentId, EquipmentDef> = {
+  laser: {
+    name: 'Piercing Laser',
+    description: 'Every few seconds, a beam sweeps through the nearest bot and everything behind it.',
+    icon: '║',
+    accent: '#5ad1ff',
+  },
+  fireCannon: {
+    name: 'Fire Cannon',
+    description: 'Lobs an exploding fireball at whatever is crossing the edge of your range.',
+    icon: '☄',
+    accent: '#ff8f4d',
+  },
+  aura: {
+    name: 'Hellfire Aura',
+    description: 'A ring of fire around you that burns anything that gets close.',
+    icon: '♨',
+    accent: '#ff2f6d',
+  },
+} as const;
+
+export const LASER = {
+  cooldown: 3,
+  damage: 24,
+  /** Half-width of the beam's hit-test corridor, in vu. */
+  beamWidth: 14,
+  /** How long the beam stays drawn after firing, in seconds — purely visual. */
+  visualLife: 0.18,
+} as const;
+
+export const FIRE_CANNON = {
+  cooldown: 7,
+  damage: 46,
+  splashRadius: 80,
+  /** Flight time from launch to impact, in seconds — the arc's visual height
+   *  is derived from this so a longer lob reads as a higher one. */
+  arcTime: 0.65,
+} as const;
+
+export const AURA = {
+  radius: 95,
+  /** Damage applied per tick, not per second — see AURA.tickInterval. */
+  damagePerTick: 7,
+  tickInterval: 0.4,
+} as const;
+
 /** Gold packs on the Shop screen, unlocked by watching a rewarded ad. */
 export interface GoldPack {
   id: string;

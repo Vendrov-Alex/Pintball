@@ -1,5 +1,5 @@
 import { load, save } from '../core/storage';
-import { META_UPGRADES, type MetaUpgradeId } from '../game/config';
+import { EQUIPMENT_IDS, META_UPGRADES, type EquipmentId, type MetaUpgradeId } from '../game/config';
 
 const STORAGE_KEY = 'roblaksim.profile.v1';
 /**
@@ -26,6 +26,8 @@ export interface Profile {
   /** Rewarded-ad claims, reset every calendar day. */
   ads: { day: string; counts: Record<string, number> };
   settings: { sound: boolean; haptics: boolean };
+  /** Boss-dropped gear that's been found — see EQUIPMENT in game/config.ts. */
+  equipment: Record<EquipmentId, boolean>;
   /**
    * Epoch ms of the last change, local or from the cloud. This is how an
    * optional cloud sync (see meta/cloudSync.ts) decides which copy of the
@@ -50,6 +52,7 @@ function defaultProfile(): Profile {
     stats: { runs: 0, wins: 0, bestKills: 0, bestLevel: 1, bestSurvivedSeconds: 0, totalGoldEarned: 0 },
     ads: { day: today(), counts: {} },
     settings: { sound: true, haptics: true },
+    equipment: { laser: false, fireCannon: false, aura: false },
     updatedAt: 0,
   };
 }
@@ -69,9 +72,14 @@ function hydrate(raw: string): Profile {
     stats: { ...base.stats, ...(parsed.stats ?? {}) },
     ads: { ...base.ads, ...(parsed.ads ?? {}) },
     settings: { ...base.settings, ...(parsed.settings ?? {}) },
+    equipment: { ...base.equipment, ...(parsed.equipment ?? {}) },
     updatedAt: Number.isFinite(parsed.updatedAt) ? (parsed.updatedAt as number) : 0,
     version: PROFILE_VERSION,
   };
+  // A tampered or corrupted save could set an equipment flag to something
+  // other than a real boolean; force it back to the same on/off shape the
+  // rest of the game assumes rather than letting a truthy string through.
+  for (const id of EQUIPMENT_IDS) merged.equipment[id] = merged.equipment[id] === true;
   // Clamp anything a tampered save could have inflated past the design limits.
   for (const id of Object.keys(base.upgrades) as MetaUpgradeId[]) {
     const level = Number(merged.upgrades[id]);
@@ -186,4 +194,12 @@ export function recordAdClaim(packId: string): void {
 export function setSetting<K extends keyof Profile['settings']>(key: K, value: Profile['settings'][K]): void {
   profile.settings[key] = value;
   commit();
+}
+
+/** Returns true the first time a piece of gear is unlocked, false if it was already owned. */
+export function unlockEquipment(id: EquipmentId): boolean {
+  if (profile.equipment[id]) return false;
+  profile.equipment[id] = true;
+  commit();
+  return true;
 }

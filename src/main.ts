@@ -14,6 +14,7 @@ import { AccountModal } from './ui/accountModal';
 import { Battle } from './ui/battle';
 import { formatGold, onTap, qs } from './ui/dom';
 import { Pager } from './ui/pager';
+import { GearScreen } from './ui/screens/gear';
 import { HomeScreen } from './ui/screens/home';
 import { ShopScreen } from './ui/screens/shop';
 import { UpgradesScreen } from './ui/screens/upgrades';
@@ -66,10 +67,11 @@ async function boot(): Promise<void> {
 
   const home = new HomeScreen(() => startBattle());
   const upgrades = new UpgradesScreen(() => refreshAll());
+  const gear = new GearScreen();
   const shop = new ShopScreen(() => refreshAll());
-  track.append(home.root, upgrades.root, shop.root);
+  track.append(home.root, upgrades.root, gear.root, shop.root);
 
-  const pager = new Pager(qs<HTMLElement>(app, '.shell'), ['Battle', 'Upgrade', 'Shop']);
+  const pager = new Pager(qs<HTMLElement>(app, '.shell'), ['Battle', 'Upgrade', 'Gear', 'Shop']);
   pager.setOnChange(() => {
     sfx.ui();
     refreshAll();
@@ -114,6 +116,7 @@ async function boot(): Promise<void> {
     wallet.textContent = formatGold(getProfile().gold);
     home.refresh();
     upgrades.refresh();
+    gear.refresh();
     shop.refresh();
   }
 
