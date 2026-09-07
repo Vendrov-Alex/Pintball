@@ -106,6 +106,8 @@ export interface FloatText {
   color: string;
   /** Font size in px (world units, so it scales with the camera like everything else). */
   size: number;
+  /** Critical hits get a red lightning-bolt glyph drawn next to the number. */
+  crit: boolean;
 }
 
 export interface RunResult {

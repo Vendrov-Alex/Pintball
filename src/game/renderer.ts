@@ -453,7 +453,32 @@ export class Renderer {
       ctx.globalAlpha = Math.max(0, f.life / f.maxLife);
       ctx.fillStyle = f.color;
       ctx.fillText(f.text, f.x, f.y);
+      if (f.crit) {
+        // A vector bolt rather than an emoji glyph: an emoji lightning bolt
+        // carries its own color and ignores fillStyle, which would defeat the
+        // point of a *red* critical marker.
+        const half = ctx.measureText(f.text).width / 2;
+        const iconSize = f.size * 0.6;
+        this.drawCritBolt(ctx, f.x - half - iconSize * 0.7, f.y - f.size * 0.32, iconSize);
+      }
     }
+    ctx.restore();
+  }
+
+  private drawCritBolt(ctx: CanvasRenderingContext2D, x: number, y: number, size: number): void {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.scale(size / 20, size / 20);
+    ctx.fillStyle = '#ff4d6d';
+    ctx.beginPath();
+    ctx.moveTo(2, -10);
+    ctx.lineTo(-6, 2);
+    ctx.lineTo(-1, 2);
+    ctx.lineTo(-3, 10);
+    ctx.lineTo(7, -2);
+    ctx.lineTo(1, -2);
+    ctx.closePath();
+    ctx.fill();
     ctx.restore();
   }
 

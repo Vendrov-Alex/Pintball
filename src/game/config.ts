@@ -58,6 +58,19 @@ export const PLAYER = {
   moveResponse: 16,
 } as const;
 
+/**
+ * A flat chance for any hit on a bot — bullet, laser, fireball splash, or aura
+ * tick alike, since damageEnemy() is the one funnel all of them go through —
+ * to land for extra damage. Kept modest on purpose: chance × (multiplier - 1)
+ * is the average DPS gain across the whole run (9% here), so it reads as an
+ * exciting spike rather than silently reshaping the win-rate ladder the way
+ * an uncapped "More Hands" once did.
+ */
+export const CRIT = {
+  chance: 0.15,
+  multiplier: 1.6,
+} as const;
+
 /** Floating virtual joystick, in css pixels. */
 export const JOYSTICK = {
   baseRadius: 78,

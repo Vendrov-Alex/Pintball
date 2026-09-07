@@ -2,6 +2,7 @@ import {
   AURA,
   BOSS,
   BOSS_KILL_BONUS,
+  CRIT,
   DESPAWN_FACTOR,
   ENEMY_BASE,
   ENEMY_KINDS,
@@ -140,7 +141,7 @@ export class Game {
     active: false, x: 0, y: 0, vx: 0, vy: 0, life: 0, maxLife: 1, size: 3, color: '#fff',
   }));
   readonly floats = new Pool<FloatText>(MAX_FLOATS, () => ({
-    active: false, x: 0, y: 0, life: 0, maxLife: 1, text: '', color: '#fff', size: 26,
+    active: false, x: 0, y: 0, life: 0, maxLife: 1, text: '', color: '#fff', size: 26, crit: false,
   }));
   readonly pickups = new Pool<Pickup>(MAX_PICKUPS, () => ({
     active: false, x: 0, y: 0, vx: 0, vy: 0, life: 0, kind: 'gold', value: 1,
@@ -720,7 +721,7 @@ export class Game {
       this.player.y - ny * 20 - PLAYER.halfSize,
       `-${Math.round(dealt)}`,
       '#ff4d6d',
-      { size: 19, life: 0.7 },
+      { size: 25, life: 1.0 },
     );
     this.hooks.onPlayerHit();
   }
@@ -1011,6 +1012,8 @@ export class Game {
   }
 
   private damageEnemy(e: Enemy, damage: number, vx: number, vy: number): void {
+    const crit = Math.random() < CRIT.chance;
+    if (crit) damage *= CRIT.multiplier;
     e.hp -= damage;
     e.flash = 1;
     const len = Math.hypot(vx, vy) || 1;
@@ -1019,7 +1022,11 @@ export class Game {
       e.ky += (vy / len) * 26;
     }
     this.burst(e.x, e.y, 3, e.color, 90);
-    this.spawnFloat(e.x, e.y - e.radius, `${Math.round(damage)}`, '#eaf6ff', { size: 15, life: 0.55 });
+    this.spawnFloat(e.x, e.y - e.radius, `${Math.round(damage)}`, crit ? '#ff4d6d' : '#eaf6ff', {
+      size: crit ? 30 : 21,
+      life: crit ? 1.15 : 0.9,
+      crit,
+    });
 
     if (e.hp > 0) return;
 
@@ -1144,7 +1151,7 @@ export class Game {
     y: number,
     text: string,
     color: string,
-    opts?: { size?: number; life?: number },
+    opts?: { size?: number; life?: number; crit?: boolean },
   ): void {
     const f = this.floats.obtain();
     if (!f) return;
@@ -1157,6 +1164,7 @@ export class Game {
     f.text = text;
     f.color = color;
     f.size = opts?.size ?? 26;
+    f.crit = opts?.crit ?? false;
   }
 
   private updateParticles(dt: number): void {

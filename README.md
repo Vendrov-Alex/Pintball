@@ -87,9 +87,13 @@ inline it — see the header comment in `src/core/auth.artifact-stub.ts`.
   hit, so they cannot park on top of you — and that's the only thing contact does:
   touching the square costs you HP, never the bot HP. Bots only take damage from
   your bullets.
-- Every hit shows a **damage number** — small and white on a bot, red and
-  larger on you — so a hit that didn't do what you expected (a falloff shot from
-  an extra hand, an unusually tanky bot) is visible, not just felt.
+- Every hit shows a **damage number** — white on a bot, red and larger on
+  you — sized and timed (`spawnFloat` in `src/game/engine.ts`) to stay on
+  screen long enough to actually read mid-fight, not just flash past. Any hit
+  on a bot has a flat chance (`CRIT` in `src/game/config.ts`, 15% for 1.6×
+  damage) to land as a **critical hit**: bigger, red instead of white, with a
+  red lightning bolt drawn next to the number — a real damage bonus, not just
+  a paint job, so it's worth noticing when it lands.
 - **Every bot drops two orbs where it dies** — gold and XP. Neither counts until
   you walk over it. Your magnet radius vacuums up anything close, orbs live for
   eighteen seconds, and everything you leave behind is gone. This is what makes
