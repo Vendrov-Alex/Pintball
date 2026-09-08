@@ -1,4 +1,4 @@
-import { AURA, EQUIPMENT, JOYSTICK, LASER, OBSTACLES, PICKUP, PLAYER, SHOOTER, STAGE2_BOSS_VISUAL_BONUS, WORLD } from './config';
+import { AURA, EQUIPMENT, JOYSTICK, LASER, OBSTACLES, PICKUP, PLAYER, SHOOTER, STAGE_BOSS_VISUAL_BONUS, WORLD } from './config';
 import type { Game } from './engine';
 import type { Enemy } from './types';
 
@@ -392,6 +392,8 @@ export class Renderer {
       ctx.fillStyle = e.flash > 0.05 ? '#ffffff' : e.color;
       if (e.shape === 'triangle') {
         this.drawTriangleEnemy(ctx, e, game);
+      } else if (e.shape === 'diamond') {
+        this.drawDiamondEnemy(ctx, e, game);
       } else {
         ctx.beginPath();
         ctx.arc(e.x, e.y, e.radius, 0, Math.PI * 2);
@@ -424,12 +426,12 @@ export class Renderer {
   }
 
   /** Stage 2's bots, including the boss (drawn a touch oversized — see
-   *  STAGE2_BOSS_VISUAL_BONUS — for "a big triangle boss" without moving its
+   *  STAGE_BOSS_VISUAL_BONUS — for "a big triangle boss" without moving its
    *  actual hit-radius). Always points at the player: the read it's going
    *  for is "aimed at you," which for a shooter is also the truth. */
   private drawTriangleEnemy(ctx: CanvasRenderingContext2D, e: Enemy, game: Game): void {
     const angle = Math.atan2(game.player.y - e.y, game.player.x - e.x);
-    const r = e.isBoss ? e.radius * STAGE2_BOSS_VISUAL_BONUS : e.radius;
+    const r = e.isBoss ? e.radius * STAGE_BOSS_VISUAL_BONUS : e.radius;
     ctx.save();
     ctx.translate(e.x, e.y);
     ctx.rotate(angle);
@@ -437,6 +439,27 @@ export class Renderer {
     ctx.moveTo(r, 0);
     ctx.lineTo(-r * 0.75, r * 0.85);
     ctx.lineTo(-r * 0.75, -r * 0.85);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
+
+  /** Stage 3's bots, same treatment as the triangle: the boss is drawn a
+   *  touch past its actual hit-radius (STAGE_BOSS_VISUAL_BONUS), and the
+   *  shape always points at the player. A rhombus elongated front-to-back
+   *  reads distinctly from both the circle and the triangle at a glance,
+   *  which is the whole point of changing shape per stage. */
+  private drawDiamondEnemy(ctx: CanvasRenderingContext2D, e: Enemy, game: Game): void {
+    const angle = Math.atan2(game.player.y - e.y, game.player.x - e.x);
+    const r = e.isBoss ? e.radius * STAGE_BOSS_VISUAL_BONUS : e.radius;
+    ctx.save();
+    ctx.translate(e.x, e.y);
+    ctx.rotate(angle);
+    ctx.beginPath();
+    ctx.moveTo(r, 0);
+    ctx.lineTo(0, r * 0.7);
+    ctx.lineTo(-r, 0);
+    ctx.lineTo(0, -r * 0.7);
     ctx.closePath();
     ctx.fill();
     ctx.restore();

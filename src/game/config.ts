@@ -260,12 +260,12 @@ export const ENEMY_KINDS: Record<EnemyKindId, EnemyKind> = {
   tank: { id: 'tank', hp: 3.2, speed: 0.62, radius: 1.7, damage: 1.8, gold: 3.2, xp: 2, color: '#a066ff', cluster: 1 },
   swarm: { id: 'swarm', hp: 0.45, speed: 1.25, radius: 0.72, damage: 0.6, gold: 0.8, xp: 1, color: '#4ce6b0', cluster: 5 },
   /**
-   * Stage 2 only (see WAVES_STAGE2). Deliberately fragile — hp below even a
-   * runner — because its threat is the shot, not its own durability: reaching
-   * it and killing it fast is always the right answer, so it never becomes a
-   * damage sponge that also outranges you. `damage` doubles as its bolt
-   * damage too (see SHOOTER in updateEnemies) — one number for "how much this
-   * kind hurts you," whether that happens by touch or by shot.
+   * Stage 2+ only (see WAVES_ADVANCED). Deliberately fragile — hp below even
+   * a runner — because its threat is the shot, not its own durability:
+   * reaching it and killing it fast is always the right answer, so it never
+   * becomes a damage sponge that also outranges you. `damage` doubles as its
+   * bolt damage too (see SHOOTER in updateEnemies) — one number for "how much
+   * this kind hurts you," whether that happens by touch or by shot.
    */
   shooter: { id: 'shooter', hp: 0.7, speed: 0.9, radius: 1, damage: 1, gold: 1.5, xp: 1, color: '#e64cff', cluster: 1 },
 };
@@ -293,12 +293,15 @@ export const WAVES: readonly WaveDef[] = [
 ];
 
 /**
- * Stage 2's wave table. Same nine 20-second slots and the same `rate` per
- * slot as WAVES — the difficulty step comes from STAGE_HP_MULTIPLIER
- * doubling every bot's HP and from shooter sharing the spawn budget with the
- * stage-1 kinds, not from spawning bots faster on top of that.
+ * The wave table shared by every stage past the first. Same nine 20-second
+ * slots and the same `rate` per slot as WAVES — stage 2 and stage 3 both get
+ * harder purely through STAGE_HP_MULTIPLIER / STAGE_DAMAGE_MULTIPLIER and
+ * (stage 2 onward) the shooter sharing the spawn budget with the stage-1
+ * kinds, never from spawning bots faster on top of that. The kind mix itself
+ * doesn't need to change again for stage 3 — "same idea as the triangles,"
+ * per the brief, means the escalation is in the multipliers, not a new table.
  */
-export const WAVES_STAGE2: readonly WaveDef[] = [
+export const WAVES_ADVANCED: readonly WaveDef[] = [
   { rate: 1.4, mix: { grunt: 1 } },
   { rate: 1.9, mix: { grunt: 3, runner: 1, shooter: 1 } },
   { rate: 2.5, mix: { grunt: 3, runner: 2, tank: 1, shooter: 1 } },
@@ -310,17 +313,29 @@ export const WAVES_STAGE2: readonly WaveDef[] = [
   { rate: 9.8, mix: { grunt: 1, runner: 4, tank: 3, swarm: 4, shooter: 3 } },
 ];
 
-export type StageId = 1 | 2;
-export const STAGE_IDS: readonly StageId[] = [1, 2];
+export type StageId = 1 | 2 | 3;
+export const STAGE_IDS: readonly StageId[] = [1, 2, 3];
+
+/** What every bot (and the boss) is drawn as on each stage — set once at
+ *  spawn from Game.stage (Enemy.shape), never per-kind. */
+export const STAGE_SHAPE: Record<StageId, 'circle' | 'triangle' | 'diamond'> = {
+  1: 'circle',
+  2: 'triangle',
+  3: 'diamond',
+};
 
 /**
- * Stage 2's one across-the-board rule: every bot (and the boss) has double
- * the HP of its stage-1 counterpart at the same point in the run. Nothing
- * else about a shared kind (speed, damage, gold) changes between stages —
- * only HP and, separately, the stage-2-only shooter kind and the triangle
- * shape (see Enemy.shape) mark a run as "the harder stage."
+ * Each stage's across-the-board rule, always phrased as a multiple of the
+ * stage before it (per the brief for both stage 2 and stage 3): stage 2 is
+ * double the HP of stage 1; stage 3 is double the HP *and* double the
+ * contact/bolt damage of stage 2 — so relative to stage 1, stage 3 ends up
+ * 4x HP and 2x damage. Nothing else about a kind shared across stages
+ * changes (speed, gold) — HP and damage are the only levers these turn,
+ * deliberately, so the escalation stays attributable to one thing at a time
+ * instead of several compounding into a number nobody could explain.
  */
-export const STAGE_HP_MULTIPLIER: Record<StageId, number> = { 1: 1, 2: 2 };
+export const STAGE_HP_MULTIPLIER: Record<StageId, number> = { 1: 1, 2: 2, 3: 4 };
+export const STAGE_DAMAGE_MULTIPLIER: Record<StageId, number> = { 1: 1, 2: 1, 3: 2 };
 
 /**
  * The shooter's behavior, not its power level (that's ENEMY_KINDS.shooter,
@@ -342,10 +357,11 @@ export const SHOOTER = {
   engageRange: 420,
 } as const;
 
-/** Purely visual: the stage-2 boss's triangle is drawn a bit past its actual
- *  hit-radius so "a big triangle boss" reads as bigger without moving the
- *  hitbox or the HP math (that's STAGE_HP_MULTIPLIER's job alone). */
-export const STAGE2_BOSS_VISUAL_BONUS = 1.15;
+/** Purely visual: on stage 2+ the boss's triangle/diamond is drawn a bit past
+ *  its actual hit-radius so "a big triangle boss" / "a big diamond boss"
+ *  reads as bigger without moving the hitbox or the HP math (that's
+ *  STAGE_HP_MULTIPLIER's job alone). */
+export const STAGE_BOSS_VISUAL_BONUS = 1.15;
 
 export const BOSS = {
   /**

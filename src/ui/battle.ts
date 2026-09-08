@@ -1,7 +1,7 @@
 import { sfx, unlockAudio } from '../core/audio';
 import { music } from '../core/music';
 import * as haptics from '../core/haptics';
-import { EQUIPMENT, JOYSTICK, MAX_LEVEL, OBSTACLES, RUN_DURATION, WAVES, WAVES_STAGE2, WAVE_SECONDS, WORLD, type StageId } from '../game/config';
+import { EQUIPMENT, JOYSTICK, MAX_LEVEL, OBSTACLES, RUN_DURATION, WAVES, WAVES_ADVANCED, WAVE_SECONDS, WORLD, type StageId } from '../game/config';
 import { Game } from '../game/engine';
 import { Renderer, type JoystickView } from '../game/renderer';
 import type { RunResult } from '../game/types';
@@ -336,11 +336,11 @@ export class Battle {
       this.hudTimer.classList.toggle('is-urgent', !g.bossActive && remaining <= 10);
     }
 
-    const waveCount = this.stage === 2 ? WAVES_STAGE2.length : WAVES.length;
+    const waveCount = this.stage >= 2 ? WAVES_ADVANCED.length : WAVES.length;
     const wave = Math.min(waveCount, Math.floor(g.elapsed / WAVE_SECONDS) + 1);
     if (wave !== cache.wave && !g.bossActive) {
       cache.wave = wave;
-      const label = this.stage === 2 ? `S2 · Wave ${wave}` : `Wave ${wave}`;
+      const label = this.stage >= 2 ? `S${this.stage} · Wave ${wave}` : `Wave ${wave}`;
       this.hudWave.textContent = label;
       if (this.lastWave !== -1 && wave !== this.lastWave) this.showBanner(label, 'banner--wave');
       this.lastWave = wave;

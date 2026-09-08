@@ -5,6 +5,7 @@ import { formatTime, onTap, qs } from '../dom';
 const STAGE_INFO: Record<StageId, { name: string; icon: string; blurb: string }> = {
   1: { name: 'Stage 1', icon: '●', blurb: 'The wave-survival run you know.' },
   2: { name: 'Stage 2', icon: '▲', blurb: 'Double-HP triangles, and a shooter that keeps you moving.' },
+  3: { name: 'Stage 3', icon: '◆', blurb: 'Diamonds hitting twice as hard, with twice the triangles’ HP.' },
 };
 
 export class HomeScreen {

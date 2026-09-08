@@ -29,7 +29,7 @@ Swipe left/right, or tap the dots at the bottom.
 
 | # | Screen  | What it does |
 |---|---------|--------------|
-| 1 | **Battle**  | Stage cards (Stage 2 locked until Stage 1 is cleared once) and your lifetime records. |
+| 1 | **Battle**  | Stage cards (each locked until the one before it is cleared once) and your lifetime records. |
 | 2 | **Upgrade** | Permanent, gold-bought upgrades: Attack, Attack Speed, Range, Health, Magnet, Speed. (More Hands is in-run only — see the level-up table below.) |
 | 3 | **Gear**    | The three boss-dropped equipment pieces — locked/unlocked gallery, nothing to buy. See below. |
 | 4 | **Shop**    | Gold packs unlocked by watching a rewarded video ad. |
@@ -180,45 +180,76 @@ enough to farm three boss kills from a fresh profile), so it cannot move the
 harness's win-rate ladder. It is postgame power by design, not a lever tuned
 against the core difficulty curve.
 
-## Stage 2
+## Stages 2 and 3
 
-A second, harder version of the same 3-minute-run-plus-boss structure, not a
-new game mode: unlocked once Stage 1's boss goes down (`Profile.highestStageCleared`
-in `src/meta/profile.ts`), picked from a stage card on the Battle screen. A
-locked card shows a `Beat Stage 1 to unlock` line instead of a play state.
+Harder versions of the same 3-minute-run-plus-boss structure, not new game
+modes: Stage 2 unlocks once Stage 1's boss goes down, Stage 3 once Stage 2's
+does (`Profile.highestStageCleared` in `src/meta/profile.ts`), each picked
+from its own stage card on the Battle screen. A locked card shows a
+`Beat Stage N to unlock` line instead of a play state.
 
-- **Every bot is drawn as a triangle instead of a circle** (`Enemy.shape`,
-  set once at spawn from `Game.stage`), boss included — the boss's triangle
-  is additionally drawn oversized versus its actual hit-radius
-  (`STAGE2_BOSS_VISUAL_BONUS`), a purely visual "big triangle boss" that
-  never touches the HP math or the hitbox.
-- **Every bot's HP is doubled** (`STAGE_HP_MULTIPLIER` in `src/game/config.ts`).
-  Nothing else about a kind shared with Stage 1 changes — same speed, same
-  contact damage, same gold — only HP, so a Stage 2 grunt takes twice the
-  bullets a Stage 1 grunt does for the same reward. That's the one variable
-  this stage turns, deliberately, rather than compounding several at once.
-- **A new kind, the shooter** (`ENEMY_KINDS.shooter`, magenta), mixed into
-  `WAVES_STAGE2` alongside the Stage 1 kinds at the same per-wave spawn
-  rate as `WAVES` — Stage 2 is harder from HP and a new threat, not from a
-  faster wave. A shooter holds a preferred distance instead of closing to
-  contact range (`SHOOTER.standoffRange`), strafing when it's already
-  there, and fires a bolt at the player on a cooldown that doubles as a
-  visible wind-up ring (`SHOOTER.telegraph`) — the fair-warning beat that
-  makes "forces you to keep moving" a real pressure instead of an
-  unavoidable chip-damage tax. Its own HP is deliberately low: reaching and
-  killing it fast is always the right answer, so it never becomes a damage
-  sponge that also outranges you.
+Both later stages reuse the exact same wave composition and per-wave spawn
+rate as `WAVES` (via `WAVES_ADVANCED` in `src/game/config.ts`, which also
+mixes in the shooter kind) — every escalation from here on is a stat
+multiplier and a shape change, never a faster wave:
 
-Clearing Stage 2's boss shows an "unlocked" line on the result screen the
+| | Shape (`Enemy.shape`) | HP vs. Stage 1 | Damage vs. Stage 1 |
+|---|---|---|---|
+| Stage 1 | Circle | 1x | 1x |
+| Stage 2 | Triangle | 2x | 1x |
+| Stage 3 | Diamond | 4x | 2x |
+
+`STAGE_HP_MULTIPLIER` and `STAGE_DAMAGE_MULTIPLIER` in `src/game/config.ts`
+hold those numbers, always phrased (per the brief for both stages) as a
+multiple of the stage before it — Stage 3 is double Stage 2's HP *and*
+double its damage, which is where the 4x/2x-over-Stage-1 figures above come
+from. Nothing else about a kind shared across stages changes (speed, gold):
+HP and damage are the only levers, deliberately, so the escalation stays
+attributable to one thing at a time. `STAGE_DAMAGE_MULTIPLIER` scales the
+shooter's bolt too, since bolt damage reuses the same per-enemy `damage`
+value contact hits do — one number for "how much this kind hurts you," on
+every stage.
+
+Both bosses are additionally drawn a touch oversized versus their actual
+hit-radius (`STAGE_BOSS_VISUAL_BONUS`) — "a big triangle/diamond boss" that
+never touches the HP math or the hitbox, purely a bigger silhouette.
+
+The shooter itself (`ENEMY_KINDS.shooter`, magenta, introduced on Stage 2 and
+still present on Stage 3) holds a preferred distance instead of closing to
+contact range (`SHOOTER.standoffRange`), strafing once it's there, and fires
+a bolt on a cooldown that doubles as a visible wind-up ring
+(`SHOOTER.telegraph`) — the fair-warning beat that makes "forces you to keep
+moving" a real pressure instead of an unavoidable chip-damage tax. Its own HP
+is deliberately low: reaching and killing it fast is always the right
+answer, so it never becomes a damage sponge that also outranges you.
+
+Clearing a stage's boss shows an "unlocked" line on the result screen the
 same way a boss-drop does, and updates the Battle screen's stage cards the
-next time they're rendered. Winning Stage 1 again after Stage 2 is already
-unlocked doesn't re-show that message — `recordStageClear` only fires once,
-the first time a stage's boss actually goes down.
+next time they're rendered. Re-clearing an earlier stage after a later one
+is already unlocked doesn't re-show that message — `recordStageClear` only
+fires the first time a given stage's boss actually goes down.
 
-Measured on the harness rather than assumed: at the same meta-upgrade tier
-that beats Stage 1 75% of the time, Stage 2 wins about 25% — a real step up,
-not a wall (`node scripts/simulate.mjs --sweep --stage 2`). A fully maxed
-build still clears it every time, same as Stage 1.
+Measured on the harness rather than assumed (`node scripts/simulate.mjs
+--sweep --stage N`), not just carried over from Stage 2's numbers:
+
+| Meta tier | Stage 1 | Stage 2 | Stage 3 |
+|---|---|---|---|
+| Fresh | 0% | 0% | 0% |
+| A third upgraded | 10-17% | 0% | 0% |
+| Two-thirds upgraded | 75-80% | 25-50% | 0% |
+| Fully maxed | 100% | 90-100% | ~40% |
+
+Stage 3's jump is steeper than Stage 2's was over Stage 1 — expected, since
+4x HP and 2x damage compound harder than 2x HP alone did, and it's exactly
+what was specified rather than a target this was tuned toward. Worth being
+explicit about, though: at fully maxed, the top of the permanent-upgrade
+ladder, Stage 3 is still closer to "a hard coin-flip" than "a reliable clear"
+the way Stage 1 and Stage 2 both are at that same tier. That reads as
+intentional aspirational content rather than a bug, but if the goal shifts to
+"maxed should reliably clear every stage," `STAGE_DAMAGE_MULTIPLIER[3]` is
+the lever to ease first — HP alone (as Stage 2 shows) makes a fight longer,
+where compounding it with double damage on top makes mistakes much less
+forgiving.
 
 ## Where the numbers live
 
@@ -284,8 +315,8 @@ player would step out of isn't the thing worth measuring.
 That shape is the design target: a new player never sees the boss, a partly
 upgraded player reaches it and loses, and an invested player wins. `npm run
 qa:shots` additionally screenshots every screen into `screenshots/`.
-`node scripts/simulate.mjs --sweep --stage 2` runs the same ladder against
-Stage 2's wave table instead of Stage 1's.
+`node scripts/simulate.mjs --sweep --stage 2` (or `--stage 3`) runs the same
+ladder against that stage's HP/damage multipliers instead of Stage 1's.
 
 ## Building for the stores
 

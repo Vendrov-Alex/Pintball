@@ -27,9 +27,10 @@ export interface Enemy {
   /** Seconds of white "just got shot" flash left. */
   flash: number;
   isBoss: boolean;
-  /** Stage 1 draws every bot as a circle; stage 2 as a triangle — set once at
-   *  spawn from the stage the run is being played on, not per-kind. */
-  shape: 'circle' | 'triangle';
+  /** Stage 1 draws every bot as a circle, stage 2 as a triangle, stage 3 as a
+   *  diamond — set once at spawn from the stage the run is being played on
+   *  (see STAGE_SHAPE in config.ts), not per-kind. */
+  shape: 'circle' | 'triangle' | 'diamond';
   /** Shooter kind only: seconds until it can fire again, and doubles as the
    *  visible wind-up window right before it does (see SHOOTER.telegraph). */
   shootCooldown: number;

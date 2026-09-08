@@ -18,11 +18,13 @@ import {
   RUN_UPGRADE_LINES,
   SHOOTER,
   SPAWN_LEAD_BIAS,
+  STAGE_DAMAGE_MULTIPLIER,
   STAGE_HP_MULTIPLIER,
+  STAGE_SHAPE,
   VICTORY,
   VIEW_SHORT_SIDE,
   WAVES,
-  WAVES_STAGE2,
+  WAVES_ADVANCED,
   WAVE_SECONDS,
   WORLD,
   XP_TABLE,
@@ -165,7 +167,8 @@ export class Game {
   }));
 
   boss: Enemy | null = null;
-  /** Which stage this run is on — see STAGE_HP_MULTIPLIER and WAVES_STAGE2 in config.ts. */
+  /** Which stage this run is on — see STAGE_HP_MULTIPLIER, STAGE_DAMAGE_MULTIPLIER
+   *  and WAVES_ADVANCED in config.ts. */
   stage: StageId = 1;
 
   /**
@@ -534,10 +537,11 @@ export class Game {
 
   // ---------------------------------------------------------------- spawning
 
-  /** Stage 2 has its own wave table (adds the shooter kind into the mix) —
-   *  everything that reads WAVES to drive spawning goes through this instead. */
+  /** Stage 2 and 3 share a wave table that adds the shooter kind into the
+   *  mix — everything that reads WAVES to drive spawning goes through this
+   *  instead. */
   private waves(): readonly WaveDef[] {
-    return this.stage === 2 ? WAVES_STAGE2 : WAVES;
+    return this.stage >= 2 ? WAVES_ADVANCED : WAVES;
   }
 
   private waveIndex(): number {
@@ -621,7 +625,7 @@ export class Game {
     e.hp = e.maxHp;
     e.radius = ENEMY_BASE.radius * kind.radius;
     e.speed = ENEMY_BASE.speed * kind.speed * speedMul;
-    e.damage = ENEMY_BASE.damage * kind.damage * dmgMul;
+    e.damage = ENEMY_BASE.damage * kind.damage * dmgMul * STAGE_DAMAGE_MULTIPLIER[this.stage];
     e.gold = ENEMY_BASE.gold * kind.gold * goldMul;
     e.xp = kind.xp * xpMul;
     e.kind = kind.id;
@@ -629,7 +633,7 @@ export class Game {
     e.hitTimer = 0;
     e.flash = 0;
     e.isBoss = false;
-    e.shape = this.stage === 2 ? 'triangle' : 'circle';
+    e.shape = STAGE_SHAPE[this.stage];
     // Randomised so a wave of shooters doesn't fire in lockstep or all strafe
     // the same way — irrelevant, and left at these defaults, for every other kind.
     e.shootCooldown = kind.id === 'shooter' ? Math.random() * SHOOTER.cooldown : 0;
@@ -652,7 +656,7 @@ export class Game {
     e.hp = e.maxHp;
     e.radius = ENEMY_BASE.radius * BOSS.radiusMultiplier;
     e.speed = ENEMY_BASE.speed * BOSS.speedMultiplier;
-    e.damage = ENEMY_BASE.damage * BOSS.damageMultiplier;
+    e.damage = ENEMY_BASE.damage * BOSS.damageMultiplier * STAGE_DAMAGE_MULTIPLIER[this.stage];
     e.gold = ENEMY_BASE.gold * ENEMY_SCALING.goldAtEnd * BOSS.goldMultiplier;
     e.xp = 10;
     e.kind = 'boss';
@@ -660,7 +664,7 @@ export class Game {
     e.hitTimer = 0;
     e.flash = 0;
     e.isBoss = true;
-    e.shape = this.stage === 2 ? 'triangle' : 'circle';
+    e.shape = STAGE_SHAPE[this.stage];
     e.shootCooldown = 0;
     e.strafeSign = 1;
     this.constrainToWorld(e, e.radius);
