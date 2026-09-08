@@ -359,6 +359,7 @@ export class Battle {
    *  "Tap to continue" hint, which has to stay up for as long as the player
    *  takes to actually touch the screen, not a fixed 1.4s. */
   private showBanner(text: string, modifier: string, persistent = false): void {
+    this.banner.hidden = false;
     this.banner.textContent = text;
     this.banner.className = `banner ${modifier} is-visible`;
     if (!persistent) window.setTimeout(() => this.banner.classList.remove('is-visible'), 1400);
@@ -372,7 +373,11 @@ export class Battle {
   private tryResume(): void {
     if (this.game.phase !== 'paused') return;
     this.game.resume();
+    // Hidden outright rather than left to the usual 220ms fade: the game is
+    // back under control the instant the screen is touched, so the hint has
+    // to go with it right then, not linger through a graceful animation.
     this.banner.classList.remove('is-visible');
+    this.banner.hidden = true;
     // The pause can run for as long as the player takes to look around;
     // don't let that stretch read as a frame-loop time jump once it ends.
     this.lastFrame = performance.now();

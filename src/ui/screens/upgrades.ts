@@ -63,8 +63,8 @@ export class UpgradesScreen {
           <p class="upgrade__desc">${v.description}</p>
           <div class="upgrade__pips">${pips}</div>
           <p class="upgrade__delta">
-            <strong>+${Math.round(v.bonus * 100)}%</strong>
-            ${v.nextBonus !== null ? `<span class="arrow" aria-hidden="true">→</span><em>+${Math.round(v.nextBonus * 100)}%</em>` : ''}
+            <strong>${v.value}</strong>
+            ${v.nextValue !== null ? `<span class="arrow" aria-hidden="true">→</span><em>${v.nextValue}</em>` : ''}
           </p>
         </div>
         <div class="upgrade__action">${action}</div>

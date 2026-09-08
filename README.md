@@ -30,7 +30,7 @@ Swipe left/right, or tap the dots at the bottom.
 | # | Screen  | What it does |
 |---|---------|--------------|
 | 1 | **Battle**  | Stage cards (each locked until the one before it is cleared once) and your lifetime records. |
-| 2 | **Upgrade** | Permanent, gold-bought upgrades: Attack, Attack Speed, Range, Health, Magnet, Speed. (More Hands is in-run only — see the level-up table below.) |
+| 2 | **Upgrade** | Permanent, gold-bought upgrades: Attack, Attack Speed, Range, Health, Magnet, Speed — each card shows the real in-game value the purchase moves ("14 dmg → 15 dmg", not "+6%"). (More Hands is in-run only — see the level-up table below.) |
 | 3 | **Gear**    | The three boss-dropped equipment pieces — locked/unlocked gallery, nothing to buy. See below. |
 | 4 | **Shop**    | Gold packs unlocked by watching a rewarded video ad. |
 
@@ -278,6 +278,15 @@ config with the reasoning:
   on the harness — obstacles plus a tighter fence made it easy to get boxed in.
   2500 is the smallest size that gave the original ladder back while keeping the
   fence genuinely reachable within a run.
+- **Attack Speed at a fully maxed meta level is 5.4 shots/s** — `PLAYER.fireRate`
+  (2.4) times `META_UPGRADES.fireRate`'s 25 levels at +5% each (2.25x). Worth
+  flagging since it's well past the 0-2.5 range a lot of games in the genre
+  keep this stat within: the Upgrade screen now shows the real number, which
+  makes that ceiling visible where the old "+125%" label didn't. Left as
+  measured rather than capped — `META_UPGRADES.fireRate.maxLevel` or `.step`
+  in `src/game/config.ts` are the levers if the ceiling should come down to
+  match, but that reshapes the DPS curve for every tier on the harness ladder,
+  not just a display change.
 
 ## The balance harness
 

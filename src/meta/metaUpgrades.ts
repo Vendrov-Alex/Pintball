@@ -1,4 +1,4 @@
-import { META_UPGRADES, type MetaUpgradeId } from '../game/config';
+import { META_UPGRADES, PLAYER, type MetaUpgradeId } from '../game/config';
 import { RUN_UPGRADE_IDS, type RunUpgradeId } from '../game/upgrades';
 import { getProfile, setUpgradeLevel, spendGold } from './profile';
 
@@ -9,10 +9,11 @@ export interface MetaUpgradeView {
   icon: string;
   level: number;
   maxLevel: number;
-  /** Current total bonus, e.g. 0.24 for +24%. */
-  bonus: number;
-  /** Bonus after the next purchase, or null when maxed. */
-  nextBonus: number | null;
+  /** The actual in-game value at the current level, already formatted
+   *  ("14 dmg", "2.4/s") — what a level-up really does, not a bare percent. */
+  value: string;
+  /** Same, one level up. Null when maxed. */
+  nextValue: string | null;
   /** Cost of the next level, or null when maxed. */
   cost: number | null;
   affordable: boolean;
@@ -26,6 +27,28 @@ const LABELS: Record<MetaUpgradeId, { name: string; description: string; icon: s
   magnet: { name: 'Magnet', description: 'Pull radius for gold and XP', icon: '⬤' },
   moveSpeed: { name: 'Speed', description: 'Movement speed on the map', icon: '➤' },
 };
+
+/**
+ * What each upgrade actually moves, in the same units the engine simulates
+ * with — the Upgrade screen used to show "+6%" per level, which is accurate
+ * but tells you nothing about what the number underneath actually is. `base`
+ * is the level-0 value from PLAYER in game/config.ts, the same constant the
+ * engine itself multiplies at run start (see refreshStats() in engine.ts).
+ */
+const STAT_FORMAT: Record<MetaUpgradeId, { base: number; decimals: number; suffix: string }> = {
+  damage: { base: PLAYER.damage, decimals: 0, suffix: ' dmg' },
+  fireRate: { base: PLAYER.fireRate, decimals: 1, suffix: '/s' },
+  range: { base: PLAYER.range, decimals: 0, suffix: ' u' },
+  maxHp: { base: PLAYER.maxHp, decimals: 0, suffix: ' HP' },
+  magnet: { base: PLAYER.magnetRadius, decimals: 0, suffix: ' u' },
+  moveSpeed: { base: PLAYER.moveSpeed, decimals: 0, suffix: ' u/s' },
+};
+
+function formatStat(id: MetaUpgradeId, level: number): string {
+  const f = STAT_FORMAT[id];
+  const value = f.base * (1 + bonusOf(id, level));
+  return `${value.toFixed(f.decimals)}${f.suffix}`;
+}
 
 /** Costs grow geometrically and are rounded to a readable step. */
 export function costOf(id: MetaUpgradeId, level: number): number | null {
@@ -68,8 +91,8 @@ export function viewOf(id: MetaUpgradeId): MetaUpgradeView {
     ...LABELS[id],
     level,
     maxLevel: def.maxLevel,
-    bonus: bonusOf(id, level),
-    nextBonus: cost === null ? null : bonusOf(id, level + 1),
+    value: formatStat(id, level),
+    nextValue: cost === null ? null : formatStat(id, level + 1),
     cost,
     affordable: cost !== null && profile.gold >= cost,
   };
