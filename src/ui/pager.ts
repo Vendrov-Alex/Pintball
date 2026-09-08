@@ -1,13 +1,21 @@
 import { qs } from './dom';
 
 /**
- * Horizontal swipe pager for the three app screens.
+ * Horizontal swipe pager for the app's screens.
  *
  * Written against Pointer Events rather than a scroll container so that a
  * horizontal drag can be distinguished from a vertical scroll inside a screen:
  * the gesture is only claimed once the movement is unambiguously horizontal,
  * which keeps long upgrade lists scrollable.
  */
+export interface PagerTab {
+  label: string;
+  /** Markup shown on the tab button — usually a single glyph, but the Shop
+   *  tab hands in a small `<span class="coin">` instead so its icon matches
+   *  the gold-coin visual used everywhere else gold is shown. See main.ts. */
+  icon: string;
+}
+
 export class Pager {
   readonly root: HTMLElement;
   private readonly track: HTMLElement;
@@ -27,16 +35,17 @@ export class Pager {
   private locked = false;
   private onChange?: (index: number) => void;
 
-  constructor(root: HTMLElement, labels: string[]) {
+  constructor(root: HTMLElement, tabs: PagerTab[]) {
     this.root = root;
     this.track = qs(root, '.pager__track');
 
     const nav = qs(root, '.pager__dots');
-    this.dots = labels.map((label, i) => {
+    this.dots = tabs.map(({ label, icon }, i) => {
       const dot = document.createElement('button');
       dot.type = 'button';
-      dot.className = 'dot';
+      dot.className = 'pager-tab';
       dot.setAttribute('aria-label', label);
+      dot.innerHTML = `<span class="pager-tab__icon" aria-hidden="true">${icon}</span>`;
       dot.addEventListener('click', () => this.goTo(i));
       nav.appendChild(dot);
       return dot;

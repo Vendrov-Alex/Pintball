@@ -72,7 +72,12 @@ async function boot(): Promise<void> {
   const shop = new ShopScreen(() => refreshAll());
   track.append(home.root, upgrades.root, gear.root, shop.root);
 
-  const pager = new Pager(qs<HTMLElement>(app, '.shell'), ['Battle', 'Upgrade', 'Gear', 'Shop']);
+  const pager = new Pager(qs<HTMLElement>(app, '.shell'), [
+    { label: 'Battle', icon: '⚔' },
+    { label: 'Upgrade', icon: '⬆' },
+    { label: 'Gear', icon: '⚙' },
+    { label: 'Shop', icon: '<span class="coin coin--lg"></span>' },
+  ]);
   pager.setOnChange(() => {
     sfx.ui();
     refreshAll();

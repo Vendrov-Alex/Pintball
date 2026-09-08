@@ -272,16 +272,16 @@ async function main() {
     mkdirSync(SHOT_DIR, { recursive: true });
     await page.screenshot({ path: `${SHOT_DIR}/01-home.png` });
     // Dots: 0 Battle, 1 Upgrade, 2 Gear, 3 Shop.
-    await page.evaluate(() => document.querySelectorAll('.dot')[1].click());
+    await page.evaluate(() => document.querySelectorAll('.pager-tab')[1].click());
     await sleep(450);
     await page.screenshot({ path: `${SHOT_DIR}/02-upgrades.png` });
-    await page.evaluate(() => document.querySelectorAll('.dot')[2].click());
+    await page.evaluate(() => document.querySelectorAll('.pager-tab')[2].click());
     await sleep(450);
     await page.screenshot({ path: `${SHOT_DIR}/03-gear.png` });
-    await page.evaluate(() => document.querySelectorAll('.dot')[3].click());
+    await page.evaluate(() => document.querySelectorAll('.pager-tab')[3].click());
     await sleep(450);
     await page.screenshot({ path: `${SHOT_DIR}/04-shop.png` });
-    await page.evaluate(() => document.querySelectorAll('.dot')[0].click());
+    await page.evaluate(() => document.querySelectorAll('.pager-tab')[0].click());
     await sleep(450);
   }
 

@@ -171,7 +171,7 @@ button {
   flex-direction: column;
   gap: 18px;
   min-height: 100%;
-  padding: 8px 18px calc(96px + var(--safe-bottom));
+  padding: 8px 18px calc(120px + var(--safe-bottom));
 }
 
 .screen__head h2 {
@@ -201,23 +201,42 @@ button {
   bottom: calc(14px + var(--safe-bottom));
   display: flex;
   justify-content: center;
-  gap: 10px;
+  gap: 12px;
   pointer-events: none;
 }
 
-.dot {
-  width: 8px;
-  height: 8px;
+.pager-tab {
+  width: 50px;
+  height: 50px;
   padding: 0;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.22);
+  display: grid;
+  place-items: center;
+  border-radius: 16px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--muted);
   pointer-events: auto;
-  transition: width 200ms ease, background 200ms ease;
+  transition: color 200ms ease, background 200ms ease, border-color 200ms ease,
+    box-shadow 200ms ease, transform 150ms ease;
 }
 
-.dot.is-active {
-  width: 26px;
-  background: var(--accent);
+.pager-tab:active {
+  transform: scale(0.94);
+}
+
+.pager-tab__icon {
+  font-size: 22px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.pager-tab.is-active {
+  border-color: transparent;
+  background: linear-gradient(160deg, #3fd3ff, #2f7bff 60%, #6b3bff);
+  color: #061021;
+  box-shadow: 0 10px 22px rgba(47, 123, 255, 0.4);
 }
 
 /* -------------------------------------------------------------- home screen */
